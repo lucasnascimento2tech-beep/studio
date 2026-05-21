@@ -9,7 +9,7 @@ import { ProgressHeader } from "@/components/journey/ProgressHeader";
 import { PhaseCard } from "@/components/journey/PhaseCard";
 import { MeetingUnlockStatusCard } from "@/components/journey/MeetingUnlockStatusCard";
 import { Button } from "@/components/ui/button";
-import { Settings, Info, Trophy, Rocket, LogOut, User, Users, Shield } from "lucide-react";
+import { Settings, Info, Trophy, Rocket, LogOut, User, Users, Shield, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { ProgressState, PhaseStatus, ImplementationMember } from "@/types/journey";
@@ -111,7 +111,7 @@ export default function Home() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
       <div className="flex flex-col items-center gap-4">
         <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-slate-500 font-medium text-lg animate-pulse">Estabelecendo conexão com a Jornada...</p>
+        <p className="text-slate-500 font-medium text-lg animate-pulse">Sincronizando com a sua jornada...</p>
       </div>
     </div>
   );
@@ -135,8 +135,8 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-3">
             {user?.globalRole === 'client_master' && (
-              <Button variant="ghost" size="sm" asChild className="text-white hover:bg-white/10 hidden md:flex">
-                <Link href="/app/participants"><Users className="w-4 h-4 mr-2" /> Gerenciar Equipe</Link>
+              <Button variant="default" size="sm" asChild className="bg-secondary text-primary font-bold hover:bg-secondary/80 hidden md:flex">
+                <Link href="/app/participants"><UserPlus className="w-4 h-4 mr-2" /> Gerenciar Equipe</Link>
               </Button>
             )}
             <div className="flex items-center gap-2 bg-white/10 px-3 py-1.5 rounded-full border border-white/5">
@@ -195,6 +195,15 @@ export default function Home() {
                 status={progress?.phaseStatus[phase.id] || (phase.order === 0 ? 'InProgress' : 'Locked')} 
               />
             ))}
+          </div>
+
+          {/* Botão Flutuante de Suporte ou Gestão para Mobile */}
+          <div className="md:hidden fixed bottom-6 right-6 flex flex-col gap-3">
+            {user?.globalRole === 'client_master' && (
+              <Button size="icon" className="w-14 h-14 rounded-full shadow-2xl bg-secondary text-primary" asChild>
+                <Link href="/app/participants"><Users className="w-6 h-6" /></Link>
+              </Button>
+            )}
           </div>
 
           <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-12 border-t pt-16">

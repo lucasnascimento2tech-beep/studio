@@ -9,10 +9,11 @@ import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/componen
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Users, CheckCircle, Clock, Search, MessageSquare, Loader2 } from "lucide-react";
+import { Users, CheckCircle, Clock, Search, MessageSquare, Loader2, LogOut } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import Link from "next/link";
 import { AccessRequestsTab } from "./access-requests/AccessRequestsTab";
+import { getAuth, signOut } from "firebase/auth";
 
 export default function ImplantadorPage() {
   const { user } = useUser();
@@ -27,6 +28,7 @@ export default function ImplantadorPage() {
 
   useEffect(() => {
     setIsMounted(true);
+    if (!user?.uid) return;
     
     // 1. Escutar empresas para ter o mapa de nomes
     const unsubscribeCompanies = onSnapshot(collection(db, "companies"), (snap) => {
@@ -37,8 +39,17 @@ export default function ImplantadorPage() {
       setCompanies(companyMap);
     });
 
-    // 2. Escutar implantações
-    const qImpl = query(collection(db, "implementations"));
+    // 2. Escutar implantações DESIGNADAS APENAS para este implantador (ou todas se for admin)
+    let qImpl;
+    if (user.globalRole === 'admin_2tech') {
+      qImpl = query(collection(db, "implementations"));
+    } else {
+      qImpl = query(
+        collection(db, "implementations"), 
+        where("assignedImplantadorUid", "==", user.uid)
+      );
+    }
+
     const unsubscribeImpl = onSnapshot(qImpl, (snapshot) => {
       const impls = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setImplementations(impls);
@@ -48,7 +59,7 @@ export default function ImplantadorPage() {
       setLoading(false);
     });
 
-    // 3. Contagem de solicitações pendentes
+    // 3. Contagem de solicitações pendentes (isso todos os implantadores podem ver para "escolher" clientes)
     const qRequests = query(collection(db, "accessRequests"), where("status", "==", "pending"));
     const unsubscribeRequests = onSnapshot(qRequests, (snapshot) => {
       setPendingRequestsCount(snapshot.size);
@@ -59,7 +70,11 @@ export default function ImplantadorPage() {
       unsubscribeImpl();
       unsubscribeRequests();
     };
-  }, [db]);
+  }, [db, user]);
+
+  const handleLogout = () => {
+    signOut(getAuth());
+  };
 
   if (!isMounted) return null;
 
@@ -78,12 +93,12 @@ export default function ImplantadorPage() {
             </div>
             <div>
               <h1 className="font-bold text-lg leading-none">Portal do Especialista</h1>
-              <span className="text-[10px] text-blue-400 font-bold uppercase tracking-widest">2tech Implantação</span>
+              <span className="text-[10px] text-blue-400 font-bold uppercase tracking-widest">Minha Gestão</span>
             </div>
           </div>
           <div className="flex gap-4">
-            <Button variant="ghost" className="text-white hover:bg-white/10" asChild>
-              <Link href="/">Ir para o App</Link>
+            <Button variant="ghost" size="icon" onClick={handleLogout} className="text-white/70 hover:text-white hover:bg-red-500/20">
+              <LogOut className="w-5 h-5" />
             </Button>
             <div className="w-10 h-10 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center font-bold">
               {user?.name?.charAt(0) || "A"}
@@ -94,13 +109,13 @@ export default function ImplantadorPage() {
         <main className="max-w-7xl mx-auto p-8">
           <header className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
             <div>
-              <h2 className="text-3xl font-headline font-bold text-slate-900">Gestão de Clientes</h2>
-              <p className="text-slate-500 mt-1 italic">Acompanhe, valide evidências e libere os próximos passos da jornada.</p>
+              <h2 className="text-3xl font-headline font-bold text-slate-900">Meus Clientes</h2>
+              <p className="text-slate-500 mt-1 italic">Exibindo apenas empresas sob sua responsabilidade direta.</p>
             </div>
             <div className="relative w-full md:w-80">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <Input 
-                placeholder="Buscar empresa..." 
+                placeholder="Buscar em meus clientes..." 
                 className="pl-10 h-12 bg-white border-slate-200" 
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -112,7 +127,7 @@ export default function ImplantadorPage() {
             <TabsList className="bg-slate-200/50 p-1 h-12">
               <TabsTrigger value="active" className="px-6 h-10 font-bold">Em Andamento</TabsTrigger>
               <TabsTrigger value="requests" className="px-6 h-10 font-bold relative">
-                Solicitações de Acesso
+                Novas Solicitações
                 {pendingRequestsCount > 0 && (
                   <Badge className="absolute -top-2 -right-2 bg-red-500 text-white w-5 h-5 p-0 flex items-center justify-center rounded-full text-[10px]">
                     {pendingRequestsCount}
@@ -129,7 +144,8 @@ export default function ImplantadorPage() {
                 ) : filteredImpls.length === 0 ? (
                   <div className="col-span-full py-20 text-center bg-white rounded-3xl border border-dashed border-slate-300">
                     <Clock className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-                    <p className="text-slate-500 font-medium">Nenhuma implantação encontrada.</p>
+                    <p className="text-slate-500 font-medium">Você ainda não possui clientes vinculados.</p>
+                    <p className="text-xs text-slate-400 mt-2">Aprove uma solicitação na aba ao lado para assumir um cliente.</p>
                   </div>
                 ) : (
                   filteredImpls.map(impl => (
@@ -156,15 +172,15 @@ export default function ImplantadorPage() {
                         </div>
                         <div className="grid grid-cols-2 gap-4 pt-4 border-t">
                           <div className="flex flex-col">
-                            <span className="text-[10px] text-slate-400 font-bold uppercase">Membros</span>
-                            <span className="font-bold text-slate-700 flex items-center gap-1">
-                              <Users className="w-3.5 h-3.5" /> Ativos
+                            <span className="text-[10px] text-slate-400 font-bold uppercase">Equipe Cliente</span>
+                            <span className="font-bold text-slate-700 flex items-center gap-1 text-xs">
+                              <Users className="w-3.5 h-3.5" /> Ver Detalhes
                             </span>
                           </div>
                           <div className="flex flex-col">
-                            <span className="text-[10px] text-slate-400 font-bold uppercase">Próximo Encontro</span>
-                            <span className="font-bold text-slate-700 flex items-center gap-1">
-                              <Clock className="w-3.5 h-3.5" /> Pendente
+                            <span className="text-[10px] text-slate-400 font-bold uppercase">Status Interno</span>
+                            <span className="font-bold text-slate-700 flex items-center gap-1 text-xs">
+                              <CheckCircle className="w-3.5 h-3.5 text-green-500" /> Sob Minha Gestão
                             </span>
                           </div>
                         </div>
