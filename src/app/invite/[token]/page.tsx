@@ -3,14 +3,15 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { collection, query, where, getDocs, doc, setDoc, updateDoc, serverTimestamp, getFirestore, getDoc } from "firebase/firestore";
-import { createUserWithEmailAndPassword, getAuth, signInWithEmailAndPassword } from "firebase/auth";
+import { createUserWithEmailAndPassword, getAuth } from "firebase/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle2, AlertTriangle, UserPlus, Shield, LogIn, Loader2 } from "lucide-react";
+import { CheckCircle2, AlertTriangle, UserPlus, LogIn, Loader2 } from "lucide-react";
 import { useUser } from "@/firebase";
 
 export default function InvitePage() {
@@ -21,6 +22,7 @@ export default function InvitePage() {
   const db = getFirestore();
   const auth = getAuth();
 
+  const [isMounted, setIsMounted] = useState(false);
   const [invite, setInvite] = useState<any>(null);
   const [company, setCompany] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -30,40 +32,50 @@ export default function InvitePage() {
   const [mode, setMode] = useState<'create' | 'existing'>('create');
 
   useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
     async function fetchInvite() {
       if (!token) return;
       
-      const q = query(collection(db, "invites"), where("token", "==", token));
-      const snapshot = await getDocs(q);
+      try {
+        const q = query(collection(db, "invites"), where("token", "==", token));
+        const snapshot = await getDocs(q);
 
-      if (snapshot.empty) {
-        setInvite("invalid");
-        setLoading(false);
-        return;
-      }
-
-      const inviteData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
-      
-      // Validações de Status
-      const now = new Date();
-      if (inviteData.status === 'accepted') setInvite("accepted");
-      else if (inviteData.status === 'canceled') setInvite("canceled");
-      else if (inviteData.expiresAt && new Date(inviteData.expiresAt) < now) setInvite("expired");
-      else {
-        setInvite(inviteData);
-        // Busca Empresa Real
-        if (inviteData.companyId) {
-          const compSnap = await getDoc(doc(db, "companies", inviteData.companyId));
-          if (compSnap.exists()) setCompany(compSnap.data());
+        if (snapshot.empty) {
+          setInvite("invalid");
+          setLoading(false);
+          return;
         }
+
+        const inviteData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
+        
+        const now = new Date();
+        if (inviteData.status === 'accepted') setInvite("accepted");
+        else if (inviteData.status === 'canceled') setInvite("canceled");
+        else if (inviteData.expiresAt && new Date(inviteData.expiresAt) < now) setInvite("expired");
+        else {
+          setInvite(inviteData);
+          if (inviteData.companyId) {
+            const compSnap = await getDoc(doc(db, "companies", inviteData.companyId));
+            if (compSnap.exists()) setCompany(compSnap.data());
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching invite:", err);
+        setInvite("invalid");
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     }
-    fetchInvite();
-  }, [token, db]);
+    
+    if (isMounted) {
+      fetchInvite();
+    }
+  }, [token, db, isMounted]);
 
   const finalizeInvitation = async (uid: string, email: string) => {
-    // 1. Create/Update User Profile
     await setDoc(doc(db, "users", uid), {
       uid: uid,
       name: invite.name,
@@ -75,7 +87,6 @@ export default function InvitePage() {
       updatedAt: serverTimestamp()
     }, { merge: true });
 
-    // 2. Update Implementation Member
     const memberQ = query(
       collection(db, "implementationMembers"), 
       where("implementationId", "==", invite.implementationId),
@@ -90,7 +101,6 @@ export default function InvitePage() {
       });
     }
 
-    // 3. Update Invite
     await updateDoc(doc(db, "invites", invite.id), {
       status: "accepted",
       acceptedByUid: uid,
@@ -146,7 +156,7 @@ export default function InvitePage() {
     }
   };
 
-  if (loading) return (
+  if (!isMounted || loading) return (
     <div className="min-h-screen flex items-center justify-center">
       <Loader2 className="w-8 h-8 animate-spin text-primary" />
     </div>
@@ -195,12 +205,12 @@ export default function InvitePage() {
               </div>
               <div>
                 <Label className="text-xs text-slate-400 uppercase">Seu Papel</Label>
-                <p className="font-medium text-primary capitalize">{invite.clientAccessType === "master" ? "Cliente Master" : "Participante"}</p>
+                <p className="font-medium text-primary capitalize">{invite?.clientAccessType === "master" ? "Cliente Master" : "Participante"}</p>
               </div>
               <div>
                 <Label className="text-xs text-slate-400 uppercase">Áreas Liberadas</Label>
                 <div className="flex flex-wrap gap-2 mt-2">
-                  {invite.areas.map((a: string) => (
+                  {invite?.areas?.map((a: string) => (
                     <Badge key={a} variant="secondary" className="bg-blue-50 text-blue-700">{a}</Badge>
                   ))}
                 </div>
@@ -208,56 +218,58 @@ export default function InvitePage() {
             </CardContent>
           </Card>
 
-          <Card className="border-none shadow-lg">
-            <CardHeader>
-              <Tabs defaultValue="create" className="w-full" onValueChange={(v) => setMode(v as any)}>
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="create" className="text-xs">Nova Conta</TabsTrigger>
-                  <TabsTrigger value="existing" className="text-xs">Já tenho acesso</TabsTrigger>
+          <Card className="border-none shadow-lg overflow-hidden">
+            <Tabs defaultValue="create" className="w-full" onValueChange={(v) => setMode(v as any)}>
+              <CardHeader className="p-0">
+                <TabsList className="grid w-full grid-cols-2 rounded-none h-12">
+                  <TabsTrigger value="create" className="text-xs h-full">Nova Conta</TabsTrigger>
+                  <TabsTrigger value="existing" className="text-xs h-full">Já tenho acesso</TabsTrigger>
                 </TabsList>
-              </Tabs>
-            </CardHeader>
+              </CardHeader>
 
-            {mode === 'create' ? (
-              <form onSubmit={handleAcceptNew}>
-                <CardContent className="space-y-4 pt-4">
-                  <div className="space-y-2">
-                    <Label>Seu E-mail</Label>
-                    <Input value={invite.email} disabled className="bg-slate-50" />
+              <TabsContent value="create" className="mt-0">
+                <form onSubmit={handleAcceptNew}>
+                  <CardContent className="space-y-4 pt-6">
+                    <div className="space-y-2">
+                      <Label>Seu E-mail</Label>
+                      <Input value={invite?.email || ""} disabled className="bg-slate-50" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="pass">Crie uma Senha</Label>
+                      <Input id="pass" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="conf">Confirme a Senha</Label>
+                      <Input id="conf" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required />
+                    </div>
+                  </CardContent>
+                  <CardFooter>
+                    <Button type="submit" className="w-full font-bold h-12" disabled={submitting}>
+                      {submitting ? "Criando..." : "Ativar meu Acesso"}
+                    </Button>
+                  </CardFooter>
+                </form>
+              </TabsContent>
+
+              <TabsContent value="existing" className="mt-0">
+                <CardContent className="space-y-6 pt-6 text-center">
+                  <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                    <p className="text-sm text-blue-800 leading-relaxed">
+                      Se você já possui uma conta no 2tech com o e-mail <strong>{invite?.email}</strong>, basta vincular este novo acesso à sua conta atual.
+                    </p>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="pass">Crie uma Senha</Label>
-                    <Input id="pass" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="conf">Confirme a Senha</Label>
-                    <Input id="conf" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required />
-                  </div>
+                  {currentUser && currentUser.email === invite?.email ? (
+                    <Button onClick={handleAcceptExisting} className="w-full h-12 font-bold" disabled={submitting}>
+                      {submitting ? "Vinculando..." : "Vincular a esta conta"}
+                    </Button>
+                  ) : (
+                    <Button variant="outline" onClick={() => router.push("/login?redirect=" + window.location.pathname)} className="w-full h-12 font-bold">
+                      <LogIn className="w-4 h-4 mr-2" /> Fazer Login Primeiro
+                    </Button>
+                  )}
                 </CardContent>
-                <CardFooter>
-                  <Button type="submit" className="w-full font-bold h-12" disabled={submitting}>
-                    {submitting ? "Criando..." : "Ativar meu Acesso"}
-                  </Button>
-                </CardFooter>
-              </form>
-            ) : (
-              <CardContent className="space-y-6 pt-6 text-center">
-                <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
-                  <p className="text-sm text-blue-800 leading-relaxed">
-                    Se você já possui uma conta no 2tech com o e-mail <strong>{invite.email}</strong>, basta vincular este novo acesso à sua conta atual.
-                  </p>
-                </div>
-                {currentUser && currentUser.email === invite.email ? (
-                  <Button onClick={handleAcceptExisting} className="w-full h-12 font-bold" disabled={submitting}>
-                    {submitting ? "Vinculando..." : "Vincular a esta conta"}
-                  </Button>
-                ) : (
-                  <Button variant="outline" onClick={() => router.push("/login?redirect=" + window.location.pathname)} className="w-full h-12 font-bold">
-                    <LogIn className="w-4 h-4 mr-2" /> Fazer Login Primeiro
-                  </Button>
-                )}
-              </CardContent>
-            )}
+              </TabsContent>
+            </Tabs>
           </Card>
         </div>
       </div>
