@@ -1,0 +1,17 @@
+
+{
+  "placeholderImages": [
+    {
+      "id": "hero-dashboard",
+      "description": "Professional business dashboard overview",
+      "imageUrl": "https://picsum.photos/seed/tech1/1200/400",
+      "imageHint": "business dashboard"
+    },
+    {
+      "id": "module-video",
+      "description": "Software training video placeholder",
+      "imageUrl": "https://picsum.photos/seed/video1/800/450",
+      "imageHint": "software training"
+    }
+  ]
+}
