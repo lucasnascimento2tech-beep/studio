@@ -1,0 +1,114 @@
+
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Perfil global de usuário no sistema.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "globalRole": { "type": "string", "enum": ["admin_2tech", "implantador", "client_master", "client_participant"] },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "email", "globalRole"]
+    },
+    "Company": {
+      "title": "Company",
+      "description": "Empresa cliente da 2tech.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "cnpj": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "inactive", "implementation", "completed"] },
+        "mainContactUid": { "type": "string" },
+        "activeImplementationId": { "type": "string" }
+      }
+    },
+    "Implementation": {
+      "title": "Implementation",
+      "description": "Jornada de implantação ativa de uma empresa.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "status": { "type": "string", "enum": ["not_started", "in_progress", "waiting_meeting", "waiting_approval", "completed", "paused"] },
+        "currentPhaseId": { "type": "string" },
+        "assignedImplantadorUid": { "type": "string" },
+        "progressPercent": { "type": "number" }
+      }
+    },
+    "ImplementationMember": {
+      "title": "ImplementationMember",
+      "description": "Participante de uma implantação específica.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "implementationId": { "type": "string" },
+        "companyId": { "type": "string" },
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["implementation_master", "participant", "observer"] },
+        "areas": { "type": "array", "items": { "type": "string" } },
+        "requiredForMeetings": { "type": "array", "items": { "type": "string" } },
+        "isRequiredParticipant": { "type": "boolean" },
+        "inviteStatus": { "type": "string", "enum": ["pending", "accepted", "expired", "canceled"] }
+      }
+    },
+    "Invite": {
+      "title": "Invite",
+      "description": "Convite por link para novos participantes.",
+      "type": "object",
+      "properties": {
+        "token": { "type": "string" },
+        "implementationId": { "type": "string" },
+        "companyId": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "areas": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string" },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "ModuleProgress": {
+      "title": "ModuleProgress",
+      "description": "Progresso individual de um módulo.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "moduleId": { "type": "string" },
+        "implementationId": { "type": "string" },
+        "status": { "type": "string" },
+        "evidenceStatus": { "type": "string" }
+      }
+    },
+    "Meeting": {
+      "title": "Meeting",
+      "description": "Encontro guiado com implantador.",
+      "type": "object",
+      "properties": {
+        "implementationId": { "type": "string" },
+        "meetingType": { "type": "string" },
+        "status": { "type": "string" },
+        "scheduledAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "auth": {
+    "providers": ["password"]
+  },
+  "firestore": {
+    "/users/{uid}": { "schema": "#/backend/entities/User", "description": "Dados globais do usuário." },
+    "/companies/{companyId}": { "schema": "#/backend/entities/Company", "description": "Empresas cadastradas." },
+    "/implementations/{implementationId}": { "schema": "#/backend/entities/Implementation", "description": "Processos de implantação." },
+    "/implementationMembers/{memberId}": { "schema": "#/backend/entities/ImplementationMember", "description": "Membros vinculados a implantações." },
+    "/invites/{inviteId}": { "schema": "#/backend/entities/Invite", "description": "Tokens de convite." },
+    "/moduleProgress/{progressId}": { "schema": "#/backend/entities/ModuleProgress", "description": "Progresso de módulos." },
+    "/meetings/{meetingId}": { "schema": "#/backend/entities/Meeting", "description": "Encontros agendados." }
+  }
+}

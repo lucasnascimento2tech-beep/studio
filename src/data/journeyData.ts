@@ -12,7 +12,7 @@ export const journeyPhases: Phase[] = [
       {
         id: "mod-0-1",
         title: "Como funciona a Jornada Guiada",
-        area: "Institucional",
+        area: "gestao",
         type: "Material",
         objective: "Explicar a lógica da implantação guiada.",
         audience: "Todos",
@@ -32,7 +32,7 @@ export const journeyPhases: Phase[] = [
       {
         id: "mod-0-2",
         title: "Responsáveis Internos",
-        area: "Gestão",
+        area: "gestao",
         type: "Task",
         objective: "Definir quem participará da implantação.",
         audience: "Gestor",
@@ -62,12 +62,14 @@ export const journeyPhases: Phase[] = [
     order: 1,
     hasMeeting: true,
     meetingId: "meeting-1",
+    meetingType: "meeting_1_parametrizacao",
     meetingTitle: "Encontro 1: Parametrização de Cadastros, Produtos e Comissão",
+    requiredAreas: ["cadastros", "gestao"],
     modules: [
       {
         id: "mod-1-1",
         title: "Usuários e Privilégios",
-        area: "Configuração",
+        area: "cadastros",
         type: "Evidence",
         objective: "Configurar acessos com segurança.",
         audience: "Administrador",
@@ -88,7 +90,7 @@ export const journeyPhases: Phase[] = [
       {
         id: "mod-1-14",
         title: "Produtos",
-        area: "Comercial",
+        area: "cadastros",
         type: "Pre-Meeting",
         objective: "Preparar a estrutura de produtos operados.",
         audience: "Comercial",
@@ -119,12 +121,14 @@ export const journeyPhases: Phase[] = [
     order: 2,
     hasMeeting: true,
     meetingId: "meeting-2",
+    meetingType: "meeting_2_operacao",
     meetingTitle: "Encontro 2: Operação, Esteira e Importação",
+    requiredAreas: ["operacional", "gestao"],
     modules: [
       {
         id: "mod-2-10",
         title: "Esteira de Análise",
-        area: "Operacional",
+        area: "operacional",
         type: "Pre-Meeting",
         objective: "Dominar a principal tela de acompanhamento.",
         audience: "Operacional",
@@ -154,12 +158,14 @@ export const journeyPhases: Phase[] = [
     order: 3,
     hasMeeting: true,
     meetingId: "meeting-3",
+    meetingType: "meeting_3_financeiro",
     meetingTitle: "Encontro 3: Financeiro e Fechamento",
+    requiredAreas: ["financeiro", "gestao"],
     modules: [
       {
         id: "mod-3-7",
         title: "Fechamento de Vendedores",
-        area: "Financeiro",
+        area: "financeiro",
         type: "Pre-Meeting",
         objective: "Garantir apuração correta das comissões.",
         audience: "Financeiro",
@@ -192,7 +198,7 @@ export const journeyPhases: Phase[] = [
       {
         id: "mod-4-1",
         title: "Explorando os Relatórios",
-        area: "Gestão",
+        area: "relatorios",
         type: "Material",
         objective: "Conhecer as ferramentas de análise.",
         audience: "Gestores",
@@ -225,7 +231,7 @@ export const journeyPhases: Phase[] = [
       {
         id: "mod-5-1",
         title: "Checklist de Encerramento",
-        area: "Gestão",
+        area: "gestao",
         type: "Task",
         objective: "Confirmar prontidão da empresa.",
         audience: "Gestor",
@@ -255,7 +261,7 @@ export const journeyPhases: Phase[] = [
       {
         id: "mod-6-1",
         title: "Primeira Semana",
-        area: "Operacional",
+        area: "operacional",
         type: "Material",
         objective: "Monitorar o uso real do sistema.",
         audience: "Todos",
