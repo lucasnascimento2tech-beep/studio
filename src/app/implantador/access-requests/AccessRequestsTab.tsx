@@ -13,14 +13,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { AccessRequest, AreaType } from "@/types/journey";
-import { Loader2, UserX, Info, Building, MapPin, CheckCircle2 } from "lucide-react";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Loader2, UserX, Info, Building, MapPin, CheckCircle2, Users } from "lucide-react";
 
 export function AccessRequestsTab() {
   const { user: currentUser } = useUser();
   const db = getFirestore();
   const { toast } = useToast();
   
+  const [isMounted, setIsMounted] = useState(false);
   const [requests, setRequests] = useState<AccessRequest[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
   const [implementations, setImplementations] = useState<any[]>([]);
@@ -31,36 +31,44 @@ export function AccessRequestsTab() {
   const [approvalType, setApprovalType] = useState<'master' | 'participant' | 'reject' | null>(null);
   const [targetCompanyId, setTargetCompanyId] = useState<string>("");
   const [targetImplId, setTargetImplId] = useState<string>("");
-  const [selectedAreas, setSelectedAreas] = useState<AreaType[]>([]);
   const [reviewComment, setReviewComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    setIsMounted(true);
     // 1. Escutar solicitações
     const qReq = query(collection(db, "accessRequests"));
     const unsubscribeReq = onSnapshot(qReq, (snapshot) => {
       const reqList = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AccessRequest));
       setRequests(reqList);
       setLoading(false);
+    }, (err) => {
+      console.error("Erro ao buscar solicitações:", err);
+      setLoading(false);
     });
 
     // 2. Buscar empresas e implantações para os selects
     const fetchData = async () => {
-      const compSnap = await getDocs(collection(db, "companies"));
-      setCompanies(compSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      const implSnap = await getDocs(collection(db, "implementations"));
-      setImplementations(implSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      try {
+        const compSnap = await getDocs(collection(db, "companies"));
+        setCompanies(compSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const implSnap = await getDocs(collection(db, "implementations"));
+        setImplementations(implSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (err) {
+        console.error("Erro ao buscar dados auxiliares:", err);
+      }
     };
     fetchData();
 
     return () => unsubscribeReq();
   }, [db]);
 
+  if (!isMounted) return null;
+
   const resetForm = () => {
     setApprovalType(null);
     setTargetCompanyId("");
     setTargetImplId("");
-    setSelectedAreas([]);
     setReviewComment("");
     setSelectedRequest(null);
   };
@@ -160,7 +168,12 @@ export function AccessRequestsTab() {
 
   const formatDate = (ts: any) => {
     if (!ts) return "...";
-    if (ts.toDate) return ts.toDate().toLocaleDateString();
+    try {
+      if (ts.toDate) return ts.toDate().toLocaleDateString();
+      if (typeof ts === 'string') return new Date(ts).toLocaleDateString();
+    } catch (e) {
+      return "...";
+    }
     return "...";
   };
 
@@ -220,7 +233,7 @@ export function AccessRequestsTab() {
                       </Button>
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-[600px]">
-                      <DialogHeader><DialogTitle>Processar: {req.name}</DialogTitle></DialogHeader>
+                      <DialogHeader><DialogTitle>Processar: {req?.name}</DialogTitle></DialogHeader>
                       <div className="space-y-6 py-4">
                         <div className="space-y-3">
                           <Label>Como deseja aprovar?</Label>

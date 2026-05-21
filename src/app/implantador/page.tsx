@@ -18,6 +18,7 @@ export default function ImplantadorPage() {
   const { user } = useUser();
   const db = getFirestore();
   
+  const [isMounted, setIsMounted] = useState(false);
   const [implementations, setImplementations] = useState<any[]>([]);
   const [companies, setCompanies] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -25,11 +26,13 @@ export default function ImplantadorPage() {
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
 
   useEffect(() => {
-    // 1. Escutar empresas para ter o mapa de nomes (JOIN em memória é mais seguro e rápido para o cliente)
+    setIsMounted(true);
+    
+    // 1. Escutar empresas para ter o mapa de nomes
     const unsubscribeCompanies = onSnapshot(collection(db, "companies"), (snap) => {
       const companyMap: Record<string, string> = {};
       snap.docs.forEach(doc => {
-        companyMap[doc.id] = doc.data().name || "Sem Nome";
+        companyMap[doc.id] = doc.data()?.name || "Sem Nome";
       });
       setCompanies(companyMap);
     });
@@ -39,6 +42,9 @@ export default function ImplantadorPage() {
     const unsubscribeImpl = onSnapshot(qImpl, (snapshot) => {
       const impls = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setImplementations(impls);
+      setLoading(false);
+    }, (err) => {
+      console.error("Erro ao buscar implantações:", err);
       setLoading(false);
     });
 
@@ -54,6 +60,8 @@ export default function ImplantadorPage() {
       unsubscribeRequests();
     };
   }, [db]);
+
+  if (!isMounted) return null;
 
   const filteredImpls = implementations.filter(i => {
     const cName = companies[i.companyId] || "Carregando...";
@@ -78,7 +86,7 @@ export default function ImplantadorPage() {
               <Link href="/">Ir para o App</Link>
             </Button>
             <div className="w-10 h-10 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center font-bold">
-              {user?.name?.substring(0, 1) || "A"}
+              {user?.name?.charAt(0) || "A"}
             </div>
           </div>
         </nav>
