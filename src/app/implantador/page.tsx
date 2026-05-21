@@ -9,8 +9,7 @@ import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/componen
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useToast } from "@/hooks/use-toast";
-import { Users, CheckCircle, Clock, Search, MessageSquare, UserCheck, ShieldAlert } from "lucide-react";
+import { Users, CheckCircle, Clock, Search, MessageSquare, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import Link from "next/link";
 import { AccessRequestsTab } from "./access-requests/AccessRequestsTab";
@@ -25,7 +24,6 @@ export default function ImplantadorPage() {
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
 
   useEffect(() => {
-    // 1. Subscribe to implementations
     const q = query(collection(db, "implementations"));
     const unsubscribeImpl = onSnapshot(q, async (snapshot) => {
       try {
@@ -48,7 +46,6 @@ export default function ImplantadorPage() {
       setLoading(false);
     });
 
-    // 2. Count pending requests
     const qRequests = query(collection(db, "accessRequests"), where("status", "==", "pending"));
     const unsubscribeRequests = onSnapshot(qRequests, (snapshot) => {
       setPendingRequestsCount(snapshot.size);

@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getFirestore, collection, query, onSnapshot, doc, updateDoc, getDocs, addDoc, serverTimestamp, where } from "firebase/firestore";
+import { getFirestore, collection, query, onSnapshot, doc, updateDoc, getDocs, addDoc, serverTimestamp } from "firebase/firestore";
 import { useUser } from "@/firebase";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -421,7 +421,7 @@ export function AccessRequestsTab() {
               {req.status !== 'pending' && (
                 <div className="p-3 bg-slate-50 border-t flex items-center justify-between">
                    <span className="text-[10px] text-slate-400">Revisado em: {(req.updatedAt as any)?.toDate?.().toLocaleDateString() || '...'}</span>
-                   {req.status === 'approved' ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <Loader2 className="w-4 h-4 text-red-500" />}
+                   <CheckCircle2 className="w-4 h-4 text-green-500" />
                 </div>
               )}
             </Card>
