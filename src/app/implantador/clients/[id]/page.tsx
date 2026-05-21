@@ -10,7 +10,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { 
   ArrowLeft, CheckCircle2, XCircle, Clock, FileText, 
@@ -32,23 +32,21 @@ export default function ClientDetailSpecialistPage() {
   const [members, setMembers] = useState<any[]>([]);
   const [evidences, setEvidences] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [reviewNote, setReviewNote] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!implementationId) return;
 
-    // 1. Implementation Data
     const unsubscribeImpl = onSnapshot(doc(db, "implementations", implementationId as string), (docSnap) => {
       if (docSnap.exists()) setImplementation({ id: docSnap.id, ...docSnap.data() });
       else router.push("/implantador");
     });
 
-    // 2. Members Data
     const qMembers = query(collection(db, "implementationMembers"), where("implementationId", "==", implementationId));
     const unsubscribeMembers = onSnapshot(qMembers, (snap) => {
       setMembers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    // 3. Evidence Data (Module Progress with Evidence)
     const qEvidences = query(
       collection(db, "moduleProgress"), 
       where("implementationId", "==", implementationId),
@@ -66,21 +64,30 @@ export default function ClientDetailSpecialistPage() {
     };
   }, [implementationId, db, router]);
 
-  const handleReviewEvidence = async (evidenceId: string, status: 'approved' | 'adjustment_requested', comment: string) => {
+  const handleReviewEvidence = async (evidenceId: string, status: 'approved' | 'adjustment_requested') => {
+    const note = reviewNote[evidenceId] || (status === 'approved' ? 'Aprovado após revisão.' : 'Necessário ajuste no anexo.');
+    
     try {
       await updateDoc(doc(db, "moduleProgress", evidenceId), {
         evidenceStatus: status,
-        implantadorComment: comment,
+        implantadorComment: note,
         reviewedAt: serverTimestamp(),
         reviewedByUid: user?.uid
       });
-      toast({ title: status === 'approved' ? "Aprovado" : "Ajuste solicitado", description: "Avaliação registrada com sucesso." });
+      toast({ 
+        title: status === 'approved' ? "Evidência Aprovada" : "Ajuste Solicitado", 
+        description: "A resposta foi enviada para o cliente." 
+      });
     } catch (e) {
       toast({ variant: "destructive", title: "Erro", description: "Falha ao salvar avaliação." });
     }
   };
 
-  if (loading) return <div className="p-8 text-center">Carregando detalhes do cliente...</div>;
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+    </div>
+  );
 
   return (
     <AuthGuard allowedRoles={['implantador', 'admin_2tech']}>
@@ -91,7 +98,7 @@ export default function ClientDetailSpecialistPage() {
           </Button>
           <div>
             <h1 className="font-bold text-lg leading-none">Gestão de Cliente</h1>
-            <p className="text-xs text-slate-400 mt-1 uppercase tracking-widest font-bold">Implantação: {implementation?.id.substring(0,8)}</p>
+            <p className="text-xs text-slate-400 mt-1 uppercase tracking-widest font-bold">Ref: {implementation?.id.substring(0,8)}</p>
           </div>
         </nav>
 
@@ -102,17 +109,17 @@ export default function ClientDetailSpecialistPage() {
                 <ShieldCheck className="w-10 h-10" />
               </div>
               <div>
-                <h2 className="text-3xl font-headline font-bold text-slate-900">Cliente Exemplo Promotora</h2>
+                <h2 className="text-3xl font-headline font-bold text-slate-900">Empresa Cliente</h2>
                 <div className="flex flex-wrap gap-2 mt-2">
-                  <Badge className="bg-blue-600">Fase {implementation?.currentPhaseId.split('-')[1] || '1'}</Badge>
-                  <Badge variant="outline" className="border-primary text-primary font-bold">{implementation?.status}</Badge>
+                  <Badge className="bg-blue-600">Fase {implementation?.currentPhaseId?.split('-')[1] || '0'}</Badge>
+                  <Badge variant="outline" className="border-primary text-primary font-bold">{implementation?.status?.replace('_', ' ')}</Badge>
                   <Badge variant="secondary" className="bg-slate-100 text-slate-500">{members.length} Participantes</Badge>
                 </div>
               </div>
             </div>
             <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border w-full md:w-auto">
               <div className="text-right">
-                <p className="text-xs text-slate-400 uppercase font-bold">Progresso Geral</p>
+                <p className="text-xs text-slate-400 uppercase font-bold">Progresso</p>
                 <p className="text-2xl font-bold text-primary">{implementation?.progressPercent || 0}%</p>
               </div>
               <div className="w-32 h-2 bg-slate-200 rounded-full overflow-hidden">
@@ -124,13 +131,10 @@ export default function ClientDetailSpecialistPage() {
           <Tabs defaultValue="evidences" className="space-y-6">
             <TabsList className="bg-white border p-1 h-14 rounded-2xl shadow-sm">
               <TabsTrigger value="evidences" className="px-8 h-12 rounded-xl font-bold data-[state=active]:bg-primary data-[state=active]:text-white">
-                Evidências ({evidences.filter(e => e.evidenceStatus === 'submitted').length})
+                Evidências Pendentes ({evidences.filter(e => e.evidenceStatus === 'submitted').length})
               </TabsTrigger>
               <TabsTrigger value="team" className="px-8 h-12 rounded-xl font-bold data-[state=active]:bg-primary data-[state=active]:text-white">
                 Equipe & Áreas
-              </TabsTrigger>
-              <TabsTrigger value="phases" className="px-8 h-12 rounded-xl font-bold data-[state=active]:bg-primary data-[state=active]:text-white">
-                Jornada Detalhada
               </TabsTrigger>
             </TabsList>
 
@@ -139,12 +143,12 @@ export default function ClientDetailSpecialistPage() {
                 {evidences.length === 0 ? (
                   <Card className="col-span-full py-20 text-center border-dashed border-2">
                     <FileText className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-                    <p className="text-slate-500 font-medium">Nenhuma evidência enviada para avaliação.</p>
+                    <p className="text-slate-500 font-medium">Nenhuma evidência aguardando revisão.</p>
                   </Card>
                 ) : (
                   evidences.map(evidence => (
                     <Card key={evidence.id} className={cn(
-                      "border-none shadow-md overflow-hidden",
+                      "border-none shadow-md overflow-hidden bg-white",
                       evidence.evidenceStatus === 'approved' ? "ring-2 ring-green-500/20" : ""
                     )}>
                       <div className="p-6 space-y-4">
@@ -153,7 +157,7 @@ export default function ClientDetailSpecialistPage() {
                             <Badge variant="outline" className="mb-2 uppercase text-[10px] font-bold text-slate-400">
                               Módulo: {evidence.moduleId}
                             </Badge>
-                            <h4 className="font-bold text-slate-900">Validado por: {members.find(m => m.uid === evidence.uid)?.name || 'Desconhecido'}</h4>
+                            <h4 className="font-bold text-slate-900">Enviado por: {members.find(m => m.uid === evidence.uid)?.name || 'Membro'}</h4>
                           </div>
                           <Badge variant={evidence.evidenceStatus === 'approved' ? 'default' : 'secondary'} className={evidence.evidenceStatus === 'approved' ? 'bg-green-600' : 'bg-orange-100 text-orange-700'}>
                             {evidence.evidenceStatus === 'submitted' ? 'Aguardando Revisão' : evidence.evidenceStatus}
@@ -162,37 +166,44 @@ export default function ClientDetailSpecialistPage() {
 
                         <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
                           <p className="text-xs font-bold text-slate-400 uppercase mb-2">Resposta de Validação:</p>
-                          <p className="text-sm text-slate-700 italic">"{evidence.answers?.validationText || 'Sem resposta de texto'}"</p>
+                          <p className="text-sm text-slate-700 italic">"{evidence.answers?.validationText || 'Sem descrição'}"</p>
                         </div>
 
                         {evidence.fileName && (
-                          <Button variant="outline" className="w-full flex justify-between bg-slate-50 hover:bg-slate-100 h-14 border-dashed">
-                            <div className="flex items-center gap-3">
-                              <FileText className="w-5 h-5 text-primary" />
-                              <div className="text-left">
-                                <p className="text-xs font-bold text-slate-700 truncate max-w-[200px]">{evidence.fileName}</p>
-                                <p className="text-[10px] text-slate-400">Clique para visualizar o anexo</p>
-                              </div>
+                          <div className="flex items-center justify-between p-3 bg-blue-50/50 rounded-lg border border-blue-100">
+                            <div className="flex items-center gap-3 overflow-hidden">
+                              <FileText className="w-5 h-5 text-blue-600 shrink-0" />
+                              <span className="text-xs font-medium text-blue-800 truncate">{evidence.fileName}</span>
                             </div>
-                            <ExternalLink className="w-4 h-4 text-slate-400" />
-                          </Button>
+                            <Button variant="ghost" size="sm" className="h-8 text-blue-700 font-bold">
+                              Ver <ExternalLink className="w-3 h-3 ml-1" />
+                            </Button>
+                          </div>
                         )}
 
                         {evidence.evidenceStatus === 'submitted' && (
-                          <div className="grid grid-cols-2 gap-3 pt-4 border-t">
-                            <Button 
-                              variant="outline" 
-                              className="text-red-600 border-red-200 hover:bg-red-50 font-bold"
-                              onClick={() => handleReviewEvidence(evidence.id, 'adjustment_requested', 'Por favor, revise o anexo, está ilegível.')}
-                            >
-                              Solicitar Ajuste
-                            </Button>
-                            <Button 
-                              className="bg-green-600 hover:bg-green-700 text-white font-bold"
-                              onClick={() => handleReviewEvidence(evidence.id, 'approved', 'Excelente configuração.')}
-                            >
-                              Aprovar
-                            </Button>
+                          <div className="space-y-4 pt-4 border-t">
+                            <Textarea 
+                              placeholder="Adicionar um comentário para o cliente..." 
+                              className="text-xs min-h-[80px]"
+                              value={reviewNote[evidence.id] || ""}
+                              onChange={(e) => setReviewNote({...reviewNote, [evidence.id]: e.target.value})}
+                            />
+                            <div className="grid grid-cols-2 gap-3">
+                              <Button 
+                                variant="outline" 
+                                className="text-red-600 border-red-200 hover:bg-red-50 font-bold"
+                                onClick={() => handleReviewEvidence(evidence.id, 'adjustment_requested')}
+                              >
+                                Solicitar Ajuste
+                              </Button>
+                              <Button 
+                                className="bg-green-600 hover:bg-green-700 text-white font-bold"
+                                onClick={() => handleReviewEvidence(evidence.id, 'approved')}
+                              >
+                                Aprovar Evidência
+                              </Button>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -203,16 +214,16 @@ export default function ClientDetailSpecialistPage() {
             </TabsContent>
 
             <TabsContent value="team">
-              <Card className="border-none shadow-md">
+              <Card className="border-none shadow-md overflow-hidden bg-white">
                 <CardContent className="p-0">
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] font-bold">
                         <tr>
                           <th className="px-6 py-4 text-left">Participante</th>
-                          <th className="px-6 py-4 text-left">Função & Áreas</th>
-                          <th className="px-6 py-4 text-center">Obrigatório</th>
-                          <th className="px-6 py-4 text-center">Status Convite</th>
+                          <th className="px-6 py-4 text-left">Áreas Liberadas</th>
+                          <th className="px-6 py-4 text-center">Obrigatoriedade</th>
+                          <th className="px-6 py-4 text-center">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
@@ -231,16 +242,16 @@ export default function ClientDetailSpecialistPage() {
                             </td>
                             <td className="px-6 py-4">
                               <div className="flex flex-wrap gap-1">
-                                {member.areas.map((a: string) => (
-                                  <Badge key={a} variant="secondary" className="bg-blue-50 text-blue-700 text-[10px]">{a}</Badge>
+                                {member.areas?.map((a: string) => (
+                                  <Badge key={a} variant="secondary" className="bg-blue-50 text-blue-700 text-[10px] capitalize">{a}</Badge>
                                 ))}
                               </div>
                             </td>
                             <td className="px-6 py-4 text-center">
                               {member.isRequiredParticipant ? (
-                                <Badge className="bg-orange-500">Sim</Badge>
+                                <Badge className="bg-orange-500">Estratégico</Badge>
                               ) : (
-                                <span className="text-slate-300">-</span>
+                                <span className="text-slate-300 text-xs">Padrão</span>
                               )}
                             </td>
                             <td className="px-6 py-4 text-center">
@@ -255,30 +266,6 @@ export default function ClientDetailSpecialistPage() {
                   </div>
                 </CardContent>
               </Card>
-            </TabsContent>
-
-            <TabsContent value="phases">
-              <div className="space-y-4">
-                {journeyPhases.map((phase) => (
-                  <Card key={phase.id} className="border-none shadow-sm hover:shadow-md transition-shadow">
-                    <div className="p-6 flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center text-slate-500 font-bold">
-                          {phase.order}
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-slate-900">{phase.title}</h4>
-                          <p className="text-xs text-slate-500">{phase.modules.length} Módulos • {phase.hasMeeting ? 'Encontro Obrigatório' : 'Etapa Digital'}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <Badge variant="outline" className="border-slate-200 text-slate-400">Status no Cliente: Pendente</Badge>
-                        <ChevronRight className="w-5 h-5 text-slate-300" />
-                      </div>
-                    </div>
-                  </Card>
-                ))}
-              </div>
             </TabsContent>
           </Tabs>
         </main>

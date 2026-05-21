@@ -12,12 +12,12 @@
 
 export const firebaseConfig = {
   // SUBSTITUA OS VALORES ABAIXO:
-  apiKey: "COLE_AQUI_SUA_API_KEY",
-  authDomain: "COLE_AQUI_SEU_AUTH_DOMAIN",
-  projectId: "COLE_AQUI_SEU_PROJECT_ID",
-  storageBucket: "COLE_AQUI_SEU_STORAGE_BUCKET",
-  messagingSenderId: "COLE_AQUI_SEU_SENDER_ID",
-  appId: "COLE_AQUI_SEU_APP_ID",
+  apiKey: "AIzaSyD2T0mMbtMwhAvJJIY5GkxuMngCExgLZTU",
+  authDomain: "studio-8557738711-78949.firebaseapp.com",
+  projectId: "studio-8557738711-78949",
+  storageBucket: "studio-8557738711-78949.firebasestorage.app",
+  messagingSenderId: "426680204892",
+  appId: "1:426680204892:web:06664f860f8c1189acf099",
 };
 
 // Log de segurança para verificar se o desenvolvedor esqueceu de configurar

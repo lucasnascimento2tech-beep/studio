@@ -7,17 +7,20 @@ import { useUser } from "@/firebase";
 import { journeyPhases } from "@/data/journeyData";
 import { ProgressHeader } from "@/components/journey/ProgressHeader";
 import { PhaseCard } from "@/components/journey/PhaseCard";
+import { MeetingUnlockStatusCard } from "@/components/journey/MeetingUnlockStatusCard";
 import { Button } from "@/components/ui/button";
 import { Settings, Info, Trophy, Rocket, LogOut, User, Users, Shield } from "lucide-react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/auth/AuthGuard";
-import { ProgressState, PhaseStatus } from "@/types/journey";
+import { ProgressState, PhaseStatus, ImplementationMember } from "@/types/journey";
 import { getAuth, signOut } from "firebase/auth";
 import { useRouter } from "next/navigation";
 
 export default function Home() {
   const { user, loading: authLoading } = useUser();
   const [progress, setProgress] = useState<ProgressState | null>(null);
+  const [members, setMembers] = useState<ImplementationMember[]>([]);
+  const [memberProgress, setMemberProgress] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
@@ -29,7 +32,6 @@ export default function Home() {
       return;
     }
 
-    // Role-based redirection if accessing the root
     if (user.globalRole === 'implantador' || user.globalRole === 'admin_2tech') {
       router.push("/implantador");
       return;
@@ -41,30 +43,39 @@ export default function Home() {
     }
 
     const db = getFirestore();
-    const q = query(
+    
+    // 1. Escutar progresso de todos os membros (para o Master ver o status coletivo)
+    const progressQuery = query(
       collection(db, "moduleProgress"), 
       where("implementationId", "==", user.implementationId)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const completedModules = snapshot.docs
-        .filter(d => d.data().uid === user.uid && d.data().status === 'completed')
-        .map(d => d.data().moduleId);
-      
+    const unsubProgress = onSnapshot(progressQuery, (snapshot) => {
+      const allProg: Record<string, any> = {};
+      const completedModules: string[] = [];
       const uploadedEvidence: any = {};
+
       snapshot.docs.forEach(d => {
         const data = d.data();
+        if (!allProg[data.uid]) allProg[data.uid] = { completedModules: [] };
+        if (data.status === 'completed') {
+          allProg[data.uid].completedModules.push(data.moduleId);
+          if (data.uid === user.uid) completedModules.push(data.moduleId);
+        }
         if (data.uid === user.uid && data.evidenceStatus === 'submitted') {
           uploadedEvidence[data.moduleId] = { name: data.fileName || 'Arquivo' };
         }
       });
 
+      setMemberProgress(allProg);
+
+      // Mapeamento básico de status de fase (Simplificado para MVP)
       const phaseStatus: Record<string, PhaseStatus> = {};
       journeyPhases.forEach((p, idx) => {
         if (idx === 0) phaseStatus[p.id] = 'InProgress';
         else phaseStatus[p.id] = 'Locked';
       });
-      
+
       setProgress({
         completedModules,
         uploadedEvidence,
@@ -73,10 +84,23 @@ export default function Home() {
         phaseStatus,
         implantadorNotes: {}
       });
+    });
+
+    // 2. Escutar lista de membros
+    const membersQuery = query(
+      collection(db, "implementationMembers"),
+      where("implementationId", "==", user.implementationId)
+    );
+
+    const unsubMembers = onSnapshot(membersQuery, (snapshot) => {
+      setMembers(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ImplementationMember)));
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubProgress();
+      unsubMembers();
+    };
   }, [user, authLoading, router]);
 
   const handleLogout = () => {
@@ -87,7 +111,7 @@ export default function Home() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
       <div className="flex flex-col items-center gap-4">
         <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-slate-500 font-medium">Carregando sua jornada...</p>
+        <p className="text-slate-500 font-medium text-lg animate-pulse">Estabelecendo conexão com a Jornada...</p>
       </div>
     </div>
   );
@@ -129,28 +153,41 @@ export default function Home() {
 
         <main className="flex-1 max-w-7xl mx-auto w-full p-4 py-8">
           {nextPhase && (
-            <div className="bg-white rounded-3xl shadow-xl border-none p-8 mb-12 flex flex-col md:flex-row items-center gap-8 relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-16 -mt-16" />
-              <div className="bg-primary/10 p-6 rounded-2xl relative z-10">
-                <Rocket className="w-12 h-12 text-primary" />
+            <div className="space-y-8">
+              <div className="bg-white rounded-3xl shadow-xl border-none p-8 flex flex-col md:flex-row items-center gap-8 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-16 -mt-16" />
+                <div className="bg-primary/10 p-6 rounded-2xl relative z-10">
+                  <Rocket className="w-12 h-12 text-primary" />
+                </div>
+                <div className="flex-1 text-center md:text-left relative z-10">
+                  <h2 className="text-xs font-bold text-primary uppercase tracking-widest mb-2 flex items-center gap-2 justify-center md:justify-start">
+                    <span className="w-2 h-2 bg-primary rounded-full animate-pulse" />
+                    Sua Fase Atual
+                  </h2>
+                  <h3 className="text-3xl font-bold text-slate-900 mb-2">{nextPhase.title}</h3>
+                  <p className="text-slate-500 text-sm max-w-xl">
+                    {nextPhase.description} {user?.globalRole === 'client_master' ? 'Coordene sua equipe para avançar.' : 'Complete suas tarefas para liberar o treinamento coletivo.'}
+                  </p>
+                </div>
+                <Button asChild size="lg" className="bg-primary hover:bg-primary/90 text-white font-bold px-12 h-16 rounded-2xl shadow-xl shadow-primary/20 relative z-10">
+                  <Link href={`/phases/${nextPhase.id}`}>Acessar Módulos</Link>
+                </Button>
               </div>
-              <div className="flex-1 text-center md:text-left relative z-10">
-                <h2 className="text-xs font-bold text-primary uppercase tracking-widest mb-2 flex items-center gap-2 justify-center md:justify-start">
-                  <span className="w-2 h-2 bg-primary rounded-full animate-pulse" />
-                  Sua Fase Atual
-                </h2>
-                <h3 className="text-3xl font-bold text-slate-900 mb-2">{nextPhase.title}</h3>
-                <p className="text-slate-500 text-sm max-w-xl">
-                  {nextPhase.description} {user?.globalRole === 'client_master' ? 'Coordene sua equipe para avançar.' : 'Complete suas tarefas para liberar o treinamento coletivo.'}
-                </p>
-              </div>
-              <Button asChild size="lg" className="bg-primary hover:bg-primary/90 text-white font-bold px-12 h-16 rounded-2xl shadow-xl shadow-primary/20 relative z-10">
-                <Link href={`/phases/${nextPhase.id}`}>Acessar Módulos</Link>
-              </Button>
+
+              {/* Card de Desbloqueio de Encontro (Exibido para o Master) */}
+              {nextPhase.hasMeeting && (
+                <MeetingUnlockStatusCard 
+                  phase={nextPhase}
+                  members={members}
+                  memberProgress={memberProgress}
+                  isClientMaster={user?.globalRole === 'client_master'}
+                  onSchedule={() => window.open('https://agenda.2tech.com.br', '_blank')}
+                />
+              )}
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mt-12">
             {journeyPhases.map((phase) => (
               <PhaseCard 
                 key={phase.id} 
