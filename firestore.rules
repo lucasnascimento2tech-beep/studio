@@ -2,59 +2,81 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Admin access
+    
+    // Funções auxiliares de permissão
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
     function isAdmin() {
-      return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.globalRole == 'admin_2tech';
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.globalRole == 'admin_2tech';
     }
     
-    // Implantador access
     function isImplantador() {
-      return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.globalRole == 'implantador';
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.globalRole == 'implantador';
     }
 
-    // Client Master access
     function isClientMaster(companyId) {
-      return request.auth != null && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.globalRole == 'client_master' &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId == companyId;
+      let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return isAuthenticated() && user.globalRole == 'client_master' && user.companyId == companyId;
     }
+
+    function belongsToCompany(companyId) {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId == companyId;
+    }
+
+    function belongsToImplementation(implId) {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.implementationId == implId;
+    }
+
+    // Regras por coleção
 
     match /users/{uid} {
-      allow read: if request.auth != null && (request.auth.uid == uid || isAdmin() || isImplantador());
-      allow write: if isAdmin() || (request.auth != null && request.auth.uid == uid);
+      allow read: if isAuthenticated() && (request.auth.uid == uid || isAdmin() || isImplantador());
+      allow write: if isAdmin() || (isAuthenticated() && request.auth.uid == uid);
     }
 
     match /companies/{companyId} {
-      allow read: if request.auth != null && (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId == companyId || isAdmin() || isImplantador());
+      allow read: if isAdmin() || isImplantador() || belongsToCompany(companyId);
       allow write: if isAdmin();
     }
 
     match /implementations/{implId} {
-      allow read: if request.auth != null && (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.implementationId == implId || isAdmin() || isImplantador());
-      allow write: if isAdmin() || isImplantador();
+      allow read: if isAdmin() || isImplantador() || belongsToImplementation(implId);
+      allow update: if isAdmin() || isImplantador();
+      allow create, delete: if isAdmin();
     }
 
     match /implementationMembers/{memberId} {
-      allow read: if request.auth != null && (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.implementationId == resource.data.implementationId || isAdmin() || isImplantador());
-      allow create: if isAdmin() || (request.auth != null && isClientMaster(request.resource.data.companyId));
-      allow update, delete: if isAdmin() || (request.auth != null && isClientMaster(resource.data.companyId));
+      allow read: if isAdmin() || isImplantador() || belongsToImplementation(resource.data.implementationId);
+      allow create: if isAdmin() || (isAuthenticated() && isClientMaster(request.resource.data.companyId));
+      allow update, delete: if isAdmin() || (isAuthenticated() && isClientMaster(resource.data.companyId));
     }
 
     match /invites/{inviteId} {
-      allow read: if true; // Needed for token verification
-      allow create: if isAdmin() || (request.auth != null && isClientMaster(request.resource.data.companyId));
-      allow update, delete: if isAdmin() || (request.auth != null && isClientMaster(resource.data.companyId));
+      allow read: if true; // Aberto para permitir validação do token no cadastro
+      allow create: if isAdmin() || (isAuthenticated() && isClientMaster(request.resource.data.companyId));
+      allow update, delete: if isAdmin() || (isAuthenticated() && isClientMaster(resource.data.companyId));
     }
 
     match /moduleProgress/{progressId} {
-      allow read: if request.auth != null && (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.implementationId == resource.data.implementationId || isAdmin() || isImplantador());
-      allow write: if request.auth != null && (request.auth.uid == request.resource.data.uid || isAdmin() || isImplantador());
+      allow read: if isAdmin() || isImplantador() || belongsToImplementation(resource.data.implementationId);
+      allow write: if isAuthenticated() && (
+        request.auth.uid == request.resource.data.uid || 
+        isAdmin() || 
+        isImplantador()
+      );
     }
 
     match /meetings/{meetingId} {
-      allow read: if request.auth != null && (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.implementationId == resource.data.implementationId || isAdmin() || isImplantador());
-      allow create: if isAdmin() || (request.auth != null && isClientMaster(request.resource.data.companyId));
-      allow update: if isAdmin() || isImplantador() || (request.auth != null && isClientMaster(resource.data.companyId));
+      allow read: if isAdmin() || isImplantador() || belongsToImplementation(resource.data.implementationId);
+      allow create: if isAdmin() || (isAuthenticated() && isClientMaster(request.resource.data.companyId));
+      allow update: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(resource.data.companyId));
+    }
+
+    match /quizSubmissions/{subId} {
+      allow read: if isAdmin() || isImplantador() || belongsToImplementation(resource.data.implementationId);
+      allow create: if isAuthenticated() && request.auth.uid == request.resource.data.uid;
     }
   }
 }

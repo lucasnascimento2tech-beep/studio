@@ -32,6 +32,7 @@ export default function Home() {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
+      // Filtramos apenas os módulos concluídos pelo usuário atual para a barra de progresso individual
       const completedModules = snapshot.docs
         .filter(d => d.data().uid === user.uid && d.data().status === 'completed')
         .map(d => d.data().moduleId);
@@ -44,7 +45,7 @@ export default function Home() {
         }
       });
 
-      // Default phase status logic
+      // Lógica inicial de status das fases (pode ser evoluída para vir do Firestore)
       const phaseStatus: Record<string, PhaseStatus> = {};
       journeyPhases.forEach((p, idx) => {
         if (idx === 0) phaseStatus[p.id] = 'InProgress';
@@ -98,7 +99,7 @@ export default function Home() {
           <div className="flex items-center gap-3">
             {user?.globalRole === 'client_master' && (
               <Button variant="ghost" size="sm" asChild className="text-white hover:bg-white/10 hidden md:flex">
-                <Link href="/app/participants"><Users className="w-4 h-4 mr-2" /> Equipe</Link>
+                <Link href="/app/participants"><Users className="w-4 h-4 mr-2" /> Gerenciar Equipe</Link>
               </Button>
             )}
             <div className="flex items-center gap-2 bg-white/10 px-3 py-1.5 rounded-full border border-white/5">
@@ -123,15 +124,15 @@ export default function Home() {
               <div className="flex-1 text-center md:text-left relative z-10">
                 <h2 className="text-xs font-bold text-primary uppercase tracking-widest mb-2 flex items-center gap-2 justify-center md:justify-start">
                   <span className="w-2 h-2 bg-primary rounded-full animate-pulse" />
-                  Próxima Etapa da sua Jornada
+                  Sua Fase Atual
                 </h2>
                 <h3 className="text-3xl font-bold text-slate-900 mb-2">{nextPhase.title}</h3>
                 <p className="text-slate-500 text-sm max-w-xl">
-                  {nextPhase.description} Complete os módulos para liberar o treinamento com o especialista.
+                  {nextPhase.description} {user?.globalRole === 'client_master' ? 'Coordene sua equipe para avançar.' : 'Complete suas tarefas para liberar o treinamento coletivo.'}
                 </p>
               </div>
               <Button asChild size="lg" className="bg-primary hover:bg-primary/90 text-white font-bold px-12 h-16 rounded-2xl shadow-xl shadow-primary/20 relative z-10">
-                <Link href={`/phases/${nextPhase.id}`}>Acessar Agora</Link>
+                <Link href={`/phases/${nextPhase.id}`}>Acessar Módulos</Link>
               </Button>
             </div>
           )}
