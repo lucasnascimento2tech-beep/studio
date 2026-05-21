@@ -28,13 +28,23 @@ export default function ImplantadorPage() {
     // 1. Subscribe to implementations
     const q = query(collection(db, "implementations"));
     const unsubscribeImpl = onSnapshot(q, async (snapshot) => {
-      const impls = await Promise.all(snapshot.docs.map(async (d) => {
-        const data = d.data();
-        const companySnap = await getDocs(query(collection(db, "companies"), where("id", "==", data.companyId)));
-        const companyName = companySnap.empty ? "Desconhecida" : companySnap.docs[0].data().name;
-        return { id: d.id, companyName, ...data };
-      }));
-      setImplementations(impls);
+      try {
+        const impls = await Promise.all(snapshot.docs.map(async (d) => {
+          const data = d.data();
+          if (!data || !data.companyId) return { id: d.id, companyName: "Sem Empresa", ...data };
+          
+          try {
+            const companySnap = await getDocs(query(collection(db, "companies"), where("id", "==", data.companyId)));
+            const companyName = companySnap.empty ? "Empresa não encontrada" : companySnap.docs[0].data().name;
+            return { id: d.id, companyName, ...data };
+          } catch (err) {
+            return { id: d.id, companyName: "Erro ao buscar empresa", ...data };
+          }
+        }));
+        setImplementations(impls.filter(i => !!i));
+      } catch (err) {
+        console.error("Erro ao carregar implantações:", err);
+      }
       setLoading(false);
     });
 
@@ -51,7 +61,7 @@ export default function ImplantadorPage() {
   }, [db]);
 
   const filteredImpls = implementations.filter(i => 
-    i.companyName.toLowerCase().includes(searchTerm.toLowerCase())
+    i && i.companyName && i.companyName.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -72,7 +82,7 @@ export default function ImplantadorPage() {
               <Link href="/">Ir para o App</Link>
             </Button>
             <div className="w-10 h-10 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center font-bold">
-              {user?.name?.substring(0, 1)}
+              {user?.name?.substring(0, 1) || "A"}
             </div>
           </div>
         </nav>
@@ -110,7 +120,9 @@ export default function ImplantadorPage() {
 
             <TabsContent value="active">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                {filteredImpls.length === 0 ? (
+                {loading ? (
+                  <div className="col-span-full py-20 text-center"><Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" /></div>
+                ) : filteredImpls.length === 0 ? (
                   <div className="col-span-full py-20 text-center bg-white rounded-3xl border border-dashed border-slate-300">
                     <Clock className="w-12 h-12 text-slate-300 mx-auto mb-4" />
                     <p className="text-slate-500 font-medium">Nenhuma implantação encontrada.</p>
@@ -125,10 +137,10 @@ export default function ImplantadorPage() {
                             ID: {impl.id.substring(0, 8)}
                           </Badge>
                           <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 border-none">
-                            {impl.status}
+                            {impl.status || 'Status'}
                           </Badge>
                         </div>
-                        <CardTitle className="text-xl font-bold text-slate-900">{impl.companyName}</CardTitle>
+                        <CardTitle className="text-xl font-bold text-slate-900">{impl.companyName || 'Sem Nome'}</CardTitle>
                       </CardHeader>
                       <CardContent className="space-y-4">
                         <div className="flex items-center justify-between text-sm">

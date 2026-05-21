@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getFirestore, collection, query, onSnapshot, doc, updateDoc, getDocs, addDoc, serverTimestamp } from "firebase/firestore";
+import { getFirestore, collection, query, onSnapshot, doc, updateDoc, getDocs, addDoc, serverTimestamp, where } from "firebase/firestore";
 import { useUser } from "@/firebase";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -37,7 +37,11 @@ export function AccessRequestsTab() {
   useEffect(() => {
     const q = query(collection(db, "accessRequests"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setRequests(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AccessRequest)));
+      try {
+        setRequests(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AccessRequest)));
+      } catch (err) {
+        console.error("Erro ao processar solicitações:", err);
+      }
       setLoading(false);
     }, (err) => {
       console.error("Erro ao escutar solicitações:", err);
@@ -65,6 +69,7 @@ export function AccessRequestsTab() {
     setTargetImplId("");
     setSelectedAreas([]);
     setReviewComment("");
+    setSelectedRequest(null);
   };
 
   const handleProcessRequest = async () => {
@@ -79,7 +84,7 @@ export function AccessRequestsTab() {
         await updateDoc(requestRef, {
           status: "rejected",
           reviewedByUid: currentUser?.uid,
-          reviewComment,
+          reviewComment: reviewComment || "Solicitação não aprovada.",
           updatedAt: serverTimestamp()
         });
         await updateDoc(userRef, {
@@ -93,12 +98,12 @@ export function AccessRequestsTab() {
         let companyId = targetCompanyId;
         let implId = targetImplId;
 
-        if (!companyId || companyId === 'none') {
+        if (!companyId || companyId === 'none' || companyId === "") {
           const newCompanyRef = await addDoc(collection(db, "companies"), {
-            name: selectedRequest.companyName,
-            cnpj: selectedRequest.cnpj,
-            city: selectedRequest.city,
-            state: selectedRequest.state,
+            name: selectedRequest.companyName || "Nova Empresa",
+            cnpj: selectedRequest.cnpj || "",
+            city: selectedRequest.city || "",
+            state: selectedRequest.state || "",
             status: "implementation",
             mainContactUid: selectedRequest.uid,
             createdAt: serverTimestamp(),
@@ -206,7 +211,6 @@ export function AccessRequestsTab() {
         toast({ title: "Participante Aprovado", description: "Vínculo realizado com sucesso." });
       }
 
-      setSelectedRequest(null);
       resetForm();
     } catch (e: any) {
       console.error(e);
@@ -216,7 +220,7 @@ export function AccessRequestsTab() {
     }
   };
 
-  const filteredRequests = requests.filter(r => r.status === filter);
+  const filteredRequests = requests.filter(r => r && r.status === filter);
 
   return (
     <div className="space-y-6">
@@ -247,7 +251,7 @@ export function AccessRequestsTab() {
               <CardHeader className="pb-2">
                 <div className="flex justify-between items-start">
                   <div>
-                    <CardTitle className="text-lg font-bold">{req.name}</CardTitle>
+                    <CardTitle className="text-lg font-bold">{req.name || 'Sem Nome'}</CardTitle>
                     <p className="text-xs text-slate-400">{req.email} • {req.position}</p>
                   </div>
                   <Badge variant={req.status === 'pending' ? 'secondary' : req.status === 'approved' ? 'default' : 'destructive'}>
@@ -259,11 +263,11 @@ export function AccessRequestsTab() {
                 <div className="grid grid-cols-2 gap-4 text-xs">
                   <div className="space-y-1">
                     <p className="font-bold text-slate-400 uppercase">Empresa</p>
-                    <p className="font-medium flex items-center gap-1"><Building className="w-3 h-3" /> {req.companyName}</p>
+                    <p className="font-medium flex items-center gap-1"><Building className="w-3 h-3" /> {req.companyName || 'N/A'}</p>
                   </div>
                   <div className="space-y-1">
                     <p className="font-bold text-slate-400 uppercase">CNPJ</p>
-                    <p className="font-medium">{req.cnpj}</p>
+                    <p className="font-medium">{req.cnpj || 'N/A'}</p>
                   </div>
                   <div className="space-y-1">
                     <p className="font-bold text-slate-400 uppercase">Localização</p>
@@ -277,12 +281,12 @@ export function AccessRequestsTab() {
 
                 <div className="bg-slate-50 p-3 rounded-lg border">
                   <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Justificativa:</p>
-                  <p className="text-xs text-slate-600 line-clamp-3 italic">"{req.justification}"</p>
+                  <p className="text-xs text-slate-600 line-clamp-3 italic">"{req.justification || 'Sem justificativa.'}"</p>
                 </div>
               </CardContent>
               {req.status === 'pending' && (
                 <CardFooter className="bg-slate-50 p-4 border-t">
-                  <Dialog>
+                  <Dialog onOpenChange={(open) => { if(!open) resetForm(); }}>
                     <DialogTrigger asChild>
                       <Button className="w-full font-bold" onClick={() => {
                         setSelectedRequest(req);
@@ -297,8 +301,8 @@ export function AccessRequestsTab() {
                       </DialogHeader>
                       <div className="space-y-6 py-4">
                         <div className="bg-blue-50 p-4 rounded-lg text-xs space-y-2">
-                          <p><strong>Solicitado:</strong> {req.requestedParticipationLabels?.join(', ') || 'N/A'}</p>
-                          <p><strong>Áreas:</strong> {req.requestedAreas?.join(', ') || 'N/A'}</p>
+                          <p><strong>Solicitado:</strong> {Array.isArray(req.requestedParticipationLabels) ? req.requestedParticipationLabels.join(', ') : 'N/A'}</p>
+                          <p><strong>Áreas:</strong> {Array.isArray(req.requestedAreas) ? req.requestedAreas.join(', ') : 'N/A'}</p>
                         </div>
 
                         <div className="space-y-3">
@@ -339,7 +343,7 @@ export function AccessRequestsTab() {
                                 </SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value="none">Criar nova empresa</SelectItem>
-                                  {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                                  {companies.map(c => c && c.id && <SelectItem key={c.id} value={c.id}>{c.name || 'Sem nome'}</SelectItem>)}
                                 </SelectContent>
                               </Select>
                             </div>
@@ -354,7 +358,7 @@ export function AccessRequestsTab() {
                                 <Label className="text-xs">Selecione a Empresa</Label>
                                 <Select onValueChange={setTargetCompanyId} value={targetCompanyId}>
                                   <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                                  <SelectContent>{companies.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                                  <SelectContent>{companies.map(c => c && c.id && <SelectItem key={c.id} value={c.id}>{c.name || 'Sem nome'}</SelectItem>)}</SelectContent>
                                 </Select>
                               </div>
                               <div className="space-y-2">
@@ -363,8 +367,8 @@ export function AccessRequestsTab() {
                                   <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
                                   <SelectContent>
                                     {implementations
-                                      .filter(i => i.companyId === targetCompanyId)
-                                      .map(i => <SelectItem key={i.id} value={i.id}>Fase {i.currentPhaseId}</SelectItem>)
+                                      .filter(i => i && i.companyId === targetCompanyId)
+                                      .map(i => i && i.id && <SelectItem key={i.id} value={i.id}>Fase {i.currentPhaseId || '?'}</SelectItem>)
                                     }
                                   </SelectContent>
                                 </Select>
