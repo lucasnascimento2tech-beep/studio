@@ -30,8 +30,10 @@ export default function LoginPage() {
         return;
       }
 
-      // Role-based redirection
+      // Redirecionamento baseado em Role
       if (user.globalRole === 'admin_2tech') {
+        // TODO: Redirecionar para /admin quando a rota for criada. 
+        // Por enquanto, admin usa o painel do implantador.
         router.push("/implantador");
         return;
       }
@@ -51,8 +53,7 @@ export default function LoginPage() {
         return;
       }
 
-      // If user doc doesn't exist yet but auth is active, stay or error
-      if (!user.globalRole) {
+      if (!user.globalRole && user.uid) {
         toast({ 
           variant: "destructive", 
           title: "Acesso Não Configurado", 
@@ -120,13 +121,13 @@ export default function LoginPage() {
               </Button>
               
               <div className="w-full pt-4 border-t border-slate-100 flex flex-col items-center gap-3">
-                <p className="text-xs text-slate-500">Minha empresa está em implantação e ainda não tenho acesso.</p>
+                <p className="text-xs text-slate-500 text-center">Minha empresa está em implantação e ainda não tenho acesso.</p>
                 <Button variant="outline" className="w-full font-bold border-primary text-primary hover:bg-primary/5" asChild>
                   <Link href="/register">
                     <UserPlus className="w-4 h-4 mr-2" /> Solicitar acesso
                   </Link>
                 </Button>
-                <p className="text-[10px] text-slate-400">O acesso será liberado apenas após validação da equipe responsável.</p>
+                <p className="text-[10px] text-slate-400 text-center px-4">O acesso será liberado apenas após validação da equipe responsável.</p>
               </div>
             </CardFooter>
           </form>
