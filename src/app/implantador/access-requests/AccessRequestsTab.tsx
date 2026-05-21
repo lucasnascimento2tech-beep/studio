@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getFirestore, collection, query, onSnapshot, doc, updateDoc, getDocs, addDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { getFirestore, collection, query, onSnapshot, doc, updateDoc, getDocs, addDoc, serverTimestamp } from "firebase/firestore";
 import { useUser } from "@/firebase";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { AccessRequest, AreaType } from "@/types/journey";
-import { Loader2, UserCheck, UserX, Info, Building, MapPin, CheckCircle2, AlertCircle } from "lucide-react";
+import { Loader2, UserX, Info, Building, MapPin, CheckCircle2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 
 export function AccessRequestsTab() {
@@ -26,7 +26,6 @@ export function AccessRequestsTab() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'pending' | 'approved' | 'rejected'>('pending');
 
-  // Approval Modal state
   const [selectedRequest, setSelectedRequest] = useState<AccessRequest | null>(null);
   const [approvalType, setApprovalType] = useState<'master' | 'participant' | 'reject' | null>(null);
   const [targetCompanyId, setTargetCompanyId] = useState<string>("");
@@ -40,13 +39,20 @@ export function AccessRequestsTab() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setRequests(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AccessRequest)));
       setLoading(false);
+    }, (err) => {
+      console.error("Erro ao escutar solicitações:", err);
+      setLoading(false);
     });
 
     const fetchContext = async () => {
-      const compSnap = await getDocs(collection(db, "companies"));
-      setCompanies(compSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      const implSnap = await getDocs(collection(db, "implementations"));
-      setImplementations(implSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      try {
+        const compSnap = await getDocs(collection(db, "companies"));
+        setCompanies(compSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const implSnap = await getDocs(collection(db, "implementations"));
+        setImplementations(implSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (e) {
+        console.error("Erro ao buscar contexto:", e);
+      }
     };
     fetchContext();
 
@@ -84,12 +90,10 @@ export function AccessRequestsTab() {
         toast({ title: "Solicitação Rejeitada", description: "O usuário foi notificado." });
       } 
       else if (approvalType === 'master') {
-        // Approval as New Master (Create company/impl if needed)
         let companyId = targetCompanyId;
         let implId = targetImplId;
 
-        if (!companyId) {
-          // Create new company
+        if (!companyId || companyId === 'none') {
           const newCompanyRef = await addDoc(collection(db, "companies"), {
             name: selectedRequest.companyName,
             cnpj: selectedRequest.cnpj,
@@ -103,7 +107,6 @@ export function AccessRequestsTab() {
           companyId = newCompanyRef.id;
           await updateDoc(newCompanyRef, { id: companyId });
 
-          // Create new implementation
           const newImplRef = await addDoc(collection(db, "implementations"), {
             companyId,
             status: "in_progress",
@@ -119,7 +122,6 @@ export function AccessRequestsTab() {
           await updateDoc(newCompanyRef, { activeImplementationId: implId });
         }
 
-        // Update User
         await updateDoc(userRef, {
           globalRole: "client_master",
           active: true,
@@ -129,7 +131,6 @@ export function AccessRequestsTab() {
           updatedAt: serverTimestamp()
         });
 
-        // Create Member
         await addDoc(collection(db, "implementationMembers"), {
           implementationId: implId,
           companyId,
@@ -148,7 +149,6 @@ export function AccessRequestsTab() {
           updatedAt: serverTimestamp()
         });
 
-        // Finalize request
         await updateDoc(requestRef, {
           status: "approved",
           reviewedByUid: currentUser?.uid,
@@ -167,7 +167,6 @@ export function AccessRequestsTab() {
           return;
         }
 
-        // Update User
         await updateDoc(userRef, {
           globalRole: "client_participant",
           active: true,
@@ -177,7 +176,6 @@ export function AccessRequestsTab() {
           updatedAt: serverTimestamp()
         });
 
-        // Create Member
         await addDoc(collection(db, "implementationMembers"), {
           implementationId: targetImplId,
           companyId: targetCompanyId,
@@ -196,7 +194,6 @@ export function AccessRequestsTab() {
           updatedAt: serverTimestamp()
         });
 
-        // Finalize request
         await updateDoc(requestRef, {
           status: "approved",
           reviewedByUid: currentUser?.uid,
@@ -224,27 +221,16 @@ export function AccessRequestsTab() {
   return (
     <div className="space-y-6">
       <div className="flex justify-center gap-4 mb-4">
-        <Button 
-          variant={filter === 'pending' ? 'default' : 'outline'} 
-          onClick={() => setFilter('pending')}
-          className="rounded-full px-8"
-        >
-          Pendentes
-        </Button>
-        <Button 
-          variant={filter === 'approved' ? 'default' : 'outline'} 
-          onClick={() => setFilter('approved')}
-          className="rounded-full px-8"
-        >
-          Aprovadas
-        </Button>
-        <Button 
-          variant={filter === 'rejected' ? 'default' : 'outline'} 
-          onClick={() => setFilter('rejected')}
-          className="rounded-full px-8"
-        >
-          Rejeitadas
-        </Button>
+        {['pending', 'approved', 'rejected'].map((f) => (
+          <Button 
+            key={f}
+            variant={filter === f ? 'default' : 'outline'} 
+            onClick={() => setFilter(f as any)}
+            className="rounded-full px-8 capitalize"
+          >
+            {f === 'pending' ? 'Pendentes' : f === 'approved' ? 'Aprovadas' : 'Rejeitadas'}
+          </Button>
+        ))}
       </div>
 
       {loading ? (
@@ -285,7 +271,7 @@ export function AccessRequestsTab() {
                   </div>
                   <div className="space-y-1">
                     <p className="font-bold text-slate-400 uppercase">Solicitado em</p>
-                    <p className="font-medium">{(req.createdAt as any)?.toDate().toLocaleDateString()}</p>
+                    <p className="font-medium">{(req.createdAt as any)?.toDate?.().toLocaleDateString() || '...'}</p>
                   </div>
                 </div>
 
@@ -300,7 +286,7 @@ export function AccessRequestsTab() {
                     <DialogTrigger asChild>
                       <Button className="w-full font-bold" onClick={() => {
                         setSelectedRequest(req);
-                        setSelectedAreas(req.requestedAreas);
+                        setSelectedAreas(req.requestedAreas || []);
                       }}>
                         Avaliar Solicitação
                       </Button>
@@ -311,8 +297,8 @@ export function AccessRequestsTab() {
                       </DialogHeader>
                       <div className="space-y-6 py-4">
                         <div className="bg-blue-50 p-4 rounded-lg text-xs space-y-2">
-                          <p><strong>Solicitado:</strong> {req.requestedParticipationLabels.join(', ')}</p>
-                          <p><strong>Áreas:</strong> {req.requestedAreas.join(', ')}</p>
+                          <p><strong>Solicitado:</strong> {req.requestedParticipationLabels?.join(', ') || 'N/A'}</p>
+                          <p><strong>Áreas:</strong> {req.requestedAreas?.join(', ') || 'N/A'}</p>
                         </div>
 
                         <div className="space-y-3">
@@ -330,7 +316,7 @@ export function AccessRequestsTab() {
                               onClick={() => setApprovalType('participant')}
                               className="text-xs h-auto py-2 px-1 text-center flex-col gap-1"
                             >
-                              <Users className="w-4 h-4" /> Participante
+                              <Loader2 className="w-4 h-4" /> Participante
                             </Button>
                             <Button 
                               variant={approvalType === 'reject' ? 'destructive' : 'outline'} 
@@ -357,7 +343,6 @@ export function AccessRequestsTab() {
                                 </SelectContent>
                               </Select>
                             </div>
-                            <p className="text-[10px] text-slate-400">Ao aprovar como Master, o sistema dará acesso total ("todos") e vinculará aos encontros obrigatórios.</p>
                           </div>
                         )}
 
@@ -431,8 +416,8 @@ export function AccessRequestsTab() {
               )}
               {req.status !== 'pending' && (
                 <div className="p-3 bg-slate-50 border-t flex items-center justify-between">
-                   <span className="text-[10px] text-slate-400">Revisado em: {(req.updatedAt as any)?.toDate().toLocaleDateString()}</span>
-                   {req.status === 'approved' ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <ShieldAlert className="w-4 h-4 text-red-500" />}
+                   <span className="text-[10px] text-slate-400">Revisado em: {(req.updatedAt as any)?.toDate?.().toLocaleDateString() || '...'}</span>
+                   {req.status === 'approved' ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <Loader2 className="w-4 h-4 text-red-500" />}
                 </div>
               )}
             </Card>

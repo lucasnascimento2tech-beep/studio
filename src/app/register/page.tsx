@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { Rocket, ShieldCheck, ArrowRight, Loader2, ArrowLeft } from "lucide-react";
+import { Rocket, ShieldCheck, Loader2, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { AreaType } from "@/types/journey";
 
@@ -65,7 +65,6 @@ export default function RegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validation
     if (formData.password !== formData.confirmPassword) {
       toast({ title: "Erro", description: "As senhas não coincidem.", variant: "destructive" });
       return;
@@ -84,17 +83,14 @@ export default function RegisterPage() {
     const db = getFirestore();
 
     try {
-      // 1. Create Auth User
       const { user } = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
 
-      // 2. Map requested areas
       const requestedAreas = Array.from(new Set(
         participationOptions
           .filter(opt => selectedParticipations.includes(opt.label))
           .flatMap(opt => opt.areas)
       ));
 
-      // 3. Create User Document
       await setDoc(doc(db, "users", user.uid), {
         uid: user.uid,
         name: formData.name,
@@ -107,7 +103,6 @@ export default function RegisterPage() {
         updatedAt: serverTimestamp(),
       });
 
-      // 4. Create Access Request Document
       await addDoc(collection(db, "accessRequests"), {
         uid: user.uid,
         name: formData.name,
@@ -147,7 +142,6 @@ export default function RegisterPage() {
         title: "Erro ao cadastrar", 
         description: error.message || "Ocorreu um erro ao processar sua solicitação." 
       });
-    } finally {
       setLoading(false);
     }
   };
@@ -171,7 +165,6 @@ export default function RegisterPage() {
 
         <form onSubmit={handleSubmit}>
           <div className="space-y-6">
-            {/* Seção 1: Dados Pessoais */}
             <Card className="border-none shadow-md">
               <CardHeader>
                 <CardTitle className="text-lg">1. Dados Pessoais</CardTitle>
@@ -196,7 +189,6 @@ export default function RegisterPage() {
               </CardContent>
             </Card>
 
-            {/* Seção 2: Dados da Empresa */}
             <Card className="border-none shadow-md">
               <CardHeader>
                 <CardTitle className="text-lg">2. Dados da Empresa</CardTitle>
@@ -239,7 +231,6 @@ export default function RegisterPage() {
               </CardContent>
             </Card>
 
-            {/* Seção 3: Participação */}
             <Card className="border-none shadow-md">
               <CardHeader>
                 <CardTitle className="text-lg">3. Participação na Implantação</CardTitle>
@@ -248,16 +239,19 @@ export default function RegisterPage() {
                 <div className="space-y-3">
                   <Label>Qual será sua participação na implantação?</Label>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {participationOptions.map((opt) => (
-                      <div key={opt.label} className="flex items-center space-x-2 border p-2 rounded-lg hover:bg-slate-50 transition-colors">
-                        <Checkbox 
-                          id={`part-${opt.label}`} 
-                          checked={selectedParticipations.includes(opt.label)}
-                          onCheckedChange={() => handleParticipationToggle(opt.label)}
-                        />
-                        <Label htmlFor={`part-${opt.label}`} className="text-xs cursor-pointer">{opt.label}</Label>
-                      </div>
-                    ))}
+                    {participationOptions.map((opt) => {
+                      const sanitizedId = `part-${opt.label.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                      return (
+                        <div key={opt.label} className="flex items-center space-x-2 border p-2 rounded-lg hover:bg-slate-50 transition-colors">
+                          <Checkbox 
+                            id={sanitizedId} 
+                            checked={selectedParticipations.includes(opt.label)}
+                            onCheckedChange={() => handleParticipationToggle(opt.label)}
+                          />
+                          <Label htmlFor={sanitizedId} className="text-xs cursor-pointer">{opt.label}</Label>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -265,7 +259,7 @@ export default function RegisterPage() {
                   <Label htmlFor="justification">Justificativa</Label>
                   <Textarea 
                     id="justification" 
-                    placeholder="Exemplo: Sou responsável pelo financeiro da empresa e vou participar da configuração de comissões e fechamentos."
+                    placeholder="Exemplo: Sou responsável pelo financeiro da empresa..."
                     className="min-h-[100px]"
                     value={formData.justification}
                     onChange={handleInputChange}
@@ -275,7 +269,6 @@ export default function RegisterPage() {
               </CardContent>
             </Card>
 
-            {/* Seção 4: Segurança */}
             <Card className="border-none shadow-md">
               <CardHeader>
                 <CardTitle className="text-lg">4. Segurança</CardTitle>

@@ -5,10 +5,11 @@ import { useUser } from "@/firebase";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
-import { LogOut, Clock, ShieldAlert, CheckCircle, XCircle, ArrowLeft, Loader2 } from "lucide-react";
+import { LogOut, Clock, ShieldAlert, XCircle, ArrowLeft, Loader2 } from "lucide-react";
 import { signOut, getAuth } from "firebase/auth";
 import { useEffect, useState } from "react";
 import { getFirestore, collection, query, where, onSnapshot } from "firebase/firestore";
+import Link from "next/link";
 
 export default function PendingApprovalPage() {
   const { user, loading: userLoading } = useUser();
@@ -36,6 +37,9 @@ export default function PendingApprovalPage() {
         setRequest(snapshot.docs[0].data());
       }
       setLoading(false);
+    }, (err) => {
+      console.error("Erro ao buscar solicitação:", err);
+      setLoading(false);
     });
 
     return () => unsubscribe();
@@ -53,7 +57,6 @@ export default function PendingApprovalPage() {
   );
 
   const isRejected = user?.approvalStatus === 'rejected' || request?.status === 'rejected';
-  const isPending = user?.approvalStatus === 'pending' || request?.status === 'pending';
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
@@ -71,7 +74,7 @@ export default function PendingApprovalPage() {
           <CardContent className="space-y-6 py-6 text-center">
             <div className="space-y-1">
               <p className="text-sm text-slate-400 uppercase font-bold tracking-widest">Usuário</p>
-              <p className="font-bold text-slate-800 text-lg">{user?.name}</p>
+              <p className="font-bold text-slate-800 text-lg">{user?.name || "..."}</p>
             </div>
             
             <div className="space-y-1">
