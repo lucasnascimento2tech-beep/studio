@@ -10,6 +10,8 @@
         "name": { "type": "string" },
         "email": { "type": "string" },
         "globalRole": { "type": "string", "enum": ["admin_2tech", "implantador", "client_master", "client_participant"] },
+        "companyId": { "type": "string" },
+        "implementationId": { "type": "string" },
         "active": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
