@@ -4,139 +4,133 @@
 import { useState, useEffect } from 'react';
 import { ProgressState, PhaseStatus } from '@/types/journey';
 import { journeyPhases } from '@/data/journeyData';
-
-const STORAGE_KEY = 'guia_2tech_progress';
-
-const initialProgress: ProgressState = {
-  completedModules: [],
-  uploadedEvidence: {},
-  quizAnswers: {},
-  quizScores: {},
-  meetingStatus: {},
-  phaseStatus: {
-    'fase-0': 'InProgress'
-  },
-  implantadorNotes: {}
-};
+import { getFirestore, doc, setDoc, updateDoc, serverTimestamp, collection, query, where, onSnapshot } from 'firebase/firestore';
+import { useUser } from '@/firebase';
 
 export function useJourneyStore() {
-  const [progress, setProgress] = useState<ProgressState>(initialProgress);
+  const { user } = useUser();
+  const [progress, setProgress] = useState<ProgressState>({
+    completedModules: [],
+    uploadedEvidence: {},
+    quizScores: {},
+    meetingStatus: {},
+    phaseStatus: { 'fase-0': 'InProgress' },
+    implantadorNotes: {}
+  });
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      setProgress(JSON.parse(saved));
+    if (!user?.implementationId) {
+      setIsLoaded(true);
+      return;
     }
-    setIsLoaded(true);
-  }, []);
 
-  useEffect(() => {
-    if (isLoaded) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
-    }
-  }, [progress, isLoaded]);
+    const db = getFirestore();
+    
+    // Listen to module progress
+    const moduleQuery = query(
+      collection(db, "moduleProgress"),
+      where("implementationId", "==", user.implementationId)
+    );
 
-  const completeModule = (moduleId: string, phaseId: string) => {
-    setProgress(prev => {
-      if (prev.completedModules.includes(moduleId)) return prev;
-      
-      const newCompleted = [...prev.completedModules, moduleId];
-      const newState = { ...prev, completedModules: newCompleted };
-      
-      // Update phase status if needed
-      const phase = journeyPhases.find(p => p.id === phaseId);
-      if (phase) {
-        const allCompleted = phase.modules.every(m => newCompleted.includes(m.id));
-        const currentStatus = prev.phaseStatus[phaseId];
-        
-        if (allCompleted && currentStatus === 'InProgress') {
-           newState.phaseStatus[phaseId] = 'WaitingEvidence'; // Just a transition
+    const unsubscribeModules = onSnapshot(moduleQuery, (snapshot) => {
+      const completedModules: string[] = [];
+      const uploadedEvidence: Record<string, any> = {};
+
+      snapshot.docs.forEach(d => {
+        const data = d.data();
+        if (data.uid === user.uid && data.status === 'completed') {
+          completedModules.push(data.moduleId);
         }
-      }
-      
-      return newState;
-    });
-  };
-
-  const uploadEvidence = (moduleId: string, fileName: string) => {
-    setProgress(prev => ({
-      ...prev,
-      uploadedEvidence: {
-        ...prev.uploadedEvidence,
-        [moduleId]: { name: fileName, date: new Date().toISOString() }
-      }
-    }));
-  };
-
-  const saveQuizScore = (phaseId: string, score: number) => {
-    setProgress(prev => {
-      const newState = {
-        ...prev,
-        quizScores: { ...prev.quizScores, [phaseId]: score }
-      };
-      
-      // Logic to unlock meeting or next phase
-      const phase = journeyPhases.find(p => p.id === phaseId);
-      if (score >= 70) {
-        if (phase?.hasMeeting) {
-          newState.phaseStatus[phaseId] = 'ReadyToSchedule';
-        } else {
-          newState.phaseStatus[phaseId] = 'Completed';
-          unlockNextPhase(phaseId, newState);
+        if (data.evidenceStatus === 'submitted' || data.evidenceStatus === 'approved') {
+          uploadedEvidence[data.moduleId] = { 
+            name: data.fileName || 'Arquivo',
+            status: data.evidenceStatus 
+          };
         }
-      }
-      
-      return newState;
-    });
-  };
+      });
 
-  const unlockNextPhase = (currentPhaseId: string, state: ProgressState) => {
-    const currentIndex = journeyPhases.findIndex(p => p.id === currentPhaseId);
-    if (currentIndex < journeyPhases.length - 1) {
-      const nextPhase = journeyPhases[currentIndex + 1];
-      if (!state.phaseStatus[nextPhase.id]) {
-        state.phaseStatus[nextPhase.id] = 'NotStarted';
-      }
-      // If previous is completed, next becomes InProgress
-      if (state.phaseStatus[currentPhaseId] === 'Completed') {
-         state.phaseStatus[nextPhase.id] = 'InProgress';
-      }
-    }
-  };
-
-  const scheduleMeeting = (phaseId: string) => {
-    setProgress(prev => ({
-      ...prev,
-      meetingStatus: { ...prev.meetingStatus, [phaseId]: 'Scheduled' },
-      phaseStatus: { ...prev.phaseStatus, [phaseId]: 'Scheduled' }
-    }));
-  };
-
-  const resetProgress = () => {
-    setProgress(initialProgress);
-    localStorage.removeItem(STORAGE_KEY);
-  };
-
-  // Implantador Actions
-  const approvePhase = (phaseId: string) => {
-    setProgress(prev => {
-      const newState = {
+      setProgress(prev => ({
         ...prev,
-        phaseStatus: { ...prev.phaseStatus, [phaseId]: 'Completed' },
-        meetingStatus: { ...prev.meetingStatus, [phaseId]: 'Approved' }
-      };
-      unlockNextPhase(phaseId, newState);
-      return newState;
+        completedModules,
+        uploadedEvidence
+      }));
+      setIsLoaded(true);
+    });
+
+    // Listen to implementation status for phases
+    const implRef = doc(db, "implementations", user.implementationId);
+    const unsubscribeImpl = onSnapshot(implRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        // Here we could map actual phase status if stored in a collection
+        // For MVP, we'll keep a basic mapping
+      }
+    });
+
+    return () => {
+      unsubscribeModules();
+      unsubscribeImpl();
+    };
+  }, [user]);
+
+  const completeModule = async (moduleId: string, phaseId: string) => {
+    if (!user?.uid || !user?.implementationId) return;
+
+    const db = getFirestore();
+    const progressId = `${user.uid}_${moduleId}`;
+    
+    await setDoc(doc(db, "moduleProgress", progressId), {
+      uid: user.uid,
+      implementationId: user.implementationId,
+      companyId: user.companyId,
+      phaseId,
+      moduleId,
+      status: "completed",
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+  };
+
+  const uploadEvidence = async (moduleId: string, fileName: string, phaseId: string) => {
+    if (!user?.uid || !user?.implementationId) return;
+
+    const db = getFirestore();
+    const progressId = `${user.uid}_${moduleId}`;
+    
+    await updateDoc(doc(db, "moduleProgress", progressId), {
+      fileName,
+      evidenceStatus: "submitted",
+      updatedAt: serverTimestamp(),
     });
   };
 
-  const rejectPhase = (phaseId: string, notes: string) => {
-    setProgress(prev => ({
-      ...prev,
-      phaseStatus: { ...prev.phaseStatus, [phaseId]: 'PendingAdjustments' },
-      implantadorNotes: { ...prev.implantadorNotes, [phaseId]: notes }
-    }));
+  const saveQuizScore = async (phaseId: string, score: number) => {
+    if (!user?.uid || !user?.implementationId) return;
+    const db = getFirestore();
+    
+    await setDoc(doc(db, "quizSubmissions", `${user.uid}_${phaseId}`), {
+      uid: user.uid,
+      implementationId: user.implementationId,
+      phaseId,
+      score,
+      passed: score >= 70,
+      submittedAt: serverTimestamp()
+    });
+  };
+
+  const scheduleMeeting = async (phaseId: string, details: any) => {
+    if (!user?.implementationId) return;
+    const db = getFirestore();
+    
+    await setDoc(doc(db, "meetings", `${user.implementationId}_${phaseId}`), {
+      implementationId: user.implementationId,
+      companyId: user.companyId,
+      phaseId,
+      status: "scheduled",
+      scheduledAt: details.date,
+      notes: details.notes,
+      createdAt: serverTimestamp()
+    });
   };
 
   return {
@@ -145,9 +139,6 @@ export function useJourneyStore() {
     completeModule,
     uploadEvidence,
     saveQuizScore,
-    scheduleMeeting,
-    resetProgress,
-    approvePhase,
-    rejectPhase
+    scheduleMeeting
   };
 }
