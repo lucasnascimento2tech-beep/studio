@@ -1,9 +1,7 @@
-
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Funções auxiliares de permissão
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -29,11 +27,15 @@ service cloud.firestore {
       return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.implementationId == implId;
     }
 
-    // Regras por coleção
-
     match /users/{uid} {
       allow read: if isAuthenticated() && (request.auth.uid == uid || isAdmin() || isImplantador());
-      allow write: if isAdmin() || (isAuthenticated() && request.auth.uid == uid);
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (
+        isAuthenticated() && 
+        request.auth.uid == uid && 
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['globalRole', 'active', 'companyId', 'implementationId', 'uid', 'email'])
+      );
+      allow delete: if isAdmin();
     }
 
     match /companies/{companyId} {
@@ -54,7 +56,7 @@ service cloud.firestore {
     }
 
     match /invites/{inviteId} {
-      allow read: if true; // Aberto para permitir validação do token no cadastro
+      allow read: if true;
       allow create: if isAdmin() || (isAuthenticated() && isClientMaster(request.resource.data.companyId));
       allow update, delete: if isAdmin() || (isAuthenticated() && isClientMaster(resource.data.companyId));
     }

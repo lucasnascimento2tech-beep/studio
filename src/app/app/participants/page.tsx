@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from "react";
@@ -12,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { UserPlus, Copy, Check, Users, ShieldCheck, Mail, Trash2, ExternalLink } from "lucide-react";
+import { UserPlus, Copy, Check, Users, ShieldCheck, Mail, Trash2 } from "lucide-react";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 
 export default function ParticipantsPage() {
@@ -86,6 +85,7 @@ export default function ParticipantsPage() {
         isRequiredParticipant: isMandatory,
         requiredForMeetings: mandatoryMeetings,
         inviteStatus: "pending",
+        inviteToken: token, // Armazenando o token no membro para fácil cópia
         active: true,
         createdAt: serverTimestamp()
       });
@@ -106,6 +106,7 @@ export default function ParticipantsPage() {
   };
 
   const copyInviteLink = (token: string) => {
+    if (!token) return;
     const link = `${window.location.origin}/invite/${token}`;
     navigator.clipboard.writeText(link);
     setCopiedToken(token);
@@ -255,8 +256,8 @@ export default function ParticipantsPage() {
               </CardContent>
               {member.inviteStatus === 'pending' && (
                 <div className="p-4 border-t bg-slate-50 rounded-b-lg">
-                   <Button variant="outline" size="sm" className="w-full text-primary font-bold bg-white" onClick={() => copyInviteLink(member.id)}>
-                     {copiedToken === member.id ? <Check className="w-4 h-4 mr-2" /> : <Copy className="w-4 h-4 mr-2" />}
+                   <Button variant="outline" size="sm" className="w-full text-primary font-bold bg-white" onClick={() => copyInviteLink(member.inviteToken)}>
+                     {copiedToken === member.inviteToken ? <Check className="w-4 h-4 mr-2" /> : <Copy className="w-4 h-4 mr-2" />}
                      Copiar Link de Convite
                    </Button>
                 </div>
