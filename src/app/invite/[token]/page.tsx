@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useState, use } from "react";
+import { useRouter } from "next/navigation";
 import { collection, query, where, getDocs, doc, setDoc, updateDoc, serverTimestamp, getFirestore, getDoc } from "firebase/firestore";
 import { createUserWithEmailAndPassword, getAuth } from "firebase/auth";
 import { Button } from "@/components/ui/button";
@@ -14,8 +14,8 @@ import { useToast } from "@/hooks/use-toast";
 import { CheckCircle2, AlertTriangle, UserPlus, LogIn, Loader2 } from "lucide-react";
 import { useUser } from "@/firebase";
 
-export default function InvitePage() {
-  const { token } = useParams();
+export default function InvitePage({ params }: { params: Promise<{ token: string }> }) {
+  const { token } = use(params);
   const router = useRouter();
   const { toast } = useToast();
   const { user: currentUser } = useUser();
@@ -37,7 +37,7 @@ export default function InvitePage() {
 
   useEffect(() => {
     async function fetchInvite() {
-      if (!token) return;
+      if (!token || !isMounted) return;
       
       try {
         const q = query(collection(db, "invites"), where("token", "==", token));
@@ -70,12 +70,12 @@ export default function InvitePage() {
       }
     }
     
-    if (isMounted) {
-      fetchInvite();
-    }
+    fetchInvite();
   }, [token, db, isMounted]);
 
   const finalizeInvitation = async (uid: string, email: string) => {
+    if (!invite || typeof invite === 'string') return;
+
     await setDoc(doc(db, "users", uid), {
       uid: uid,
       name: invite.name,
@@ -131,7 +131,7 @@ export default function InvitePage() {
   const handleAcceptExisting = async () => {
     if (!currentUser) {
       toast({ title: "Login Necessário", description: "Faça login com sua conta existente para vincular o acesso." });
-      router.push("/login?redirect=" + window.location.pathname);
+      router.push("/login?redirect=" + encodeURIComponent(window.location.pathname));
       return;
     }
 
@@ -205,7 +205,9 @@ export default function InvitePage() {
               </div>
               <div>
                 <Label className="text-xs text-slate-400 uppercase">Seu Papel</Label>
-                <p className="font-medium text-primary capitalize">{invite?.clientAccessType === "master" ? "Cliente Master" : "Participante"}</p>
+                <p className="font-medium text-primary capitalize">
+                  {invite?.clientAccessType === "master" ? "Cliente Master" : "Participante"}
+                </p>
               </div>
               <div>
                 <Label className="text-xs text-slate-400 uppercase">Áreas Liberadas</Label>
@@ -263,7 +265,7 @@ export default function InvitePage() {
                       {submitting ? "Vinculando..." : "Vincular a esta conta"}
                     </Button>
                   ) : (
-                    <Button variant="outline" onClick={() => router.push("/login?redirect=" + window.location.pathname)} className="w-full h-12 font-bold">
+                    <Button variant="outline" onClick={() => router.push("/login?redirect=" + encodeURIComponent(window.location.pathname))} className="w-full h-12 font-bold">
                       <LogIn className="w-4 h-4 mr-2" /> Fazer Login Primeiro
                     </Button>
                   )}
