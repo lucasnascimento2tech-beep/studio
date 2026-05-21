@@ -45,18 +45,20 @@ export interface Phase {
 
 export type PhaseStatus = 'Locked' | 'NotStarted' | 'InProgress' | 'WaitingEvidence' | 'ReadyToSchedule' | 'Scheduled' | 'WaitingApproval' | 'Completed' | 'PendingAdjustments';
 
-export type GlobalRole = 'admin_2tech' | 'implantador' | 'client_master' | 'client_participant';
+export type GlobalRole = 'admin_2tech' | 'implantador' | 'client_master' | 'client_participant' | 'client_pending';
 
 export interface UserProfile {
   uid: string;
   name: string;
   email: string;
+  phone?: string;
   globalRole: GlobalRole;
   companyId?: string;
   implementationId?: string;
   active: boolean;
-  createdAt: string;
-  updatedAt: string;
+  approvalStatus?: 'pending' | 'approved' | 'rejected';
+  createdAt: any;
+  updatedAt: any;
 }
 
 export interface ImplementationMember {
@@ -67,11 +69,42 @@ export interface ImplementationMember {
   name: string;
   email: string;
   role: 'implementation_master' | 'participant' | 'observer';
+  clientAccessType?: 'master' | 'participant';
   areas: AreaType[];
   requiredForMeetings: string[];
   isRequiredParticipant: boolean;
   inviteStatus: 'pending' | 'accepted' | 'expired' | 'canceled';
   active: boolean;
+  acceptedAt?: any;
+  createdAt: any;
+  updatedAt: any;
+}
+
+export interface AccessRequest {
+  id: string;
+  uid: string;
+  name: string;
+  email: string;
+  phone: string;
+  position: string;
+  companyName: string;
+  cnpj: string;
+  city: string;
+  state: string;
+  website?: string;
+  mainContactName?: string;
+  mainContactEmail?: string;
+  requestedAreas: AreaType[];
+  requestedParticipationLabels: string[];
+  justification: string;
+  status: 'pending' | 'approved' | 'rejected';
+  source: 'self_registration';
+  reviewedByUid?: string | null;
+  reviewComment?: string | null;
+  matchedCompanyId?: string | null;
+  matchedImplementationId?: string | null;
+  createdAt: any;
+  updatedAt: any;
 }
 
 export interface ProgressState {

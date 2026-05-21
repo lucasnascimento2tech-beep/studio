@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -8,8 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { ShieldCheck, Rocket, AlertCircle, Loader2 } from "lucide-react";
+import { ShieldCheck, Rocket, AlertCircle, Loader2, UserPlus } from "lucide-react";
 import { useUser } from "@/firebase";
+import Link from "next/link";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -28,22 +30,37 @@ export default function LoginPage() {
         return;
       }
 
-      switch (user.globalRole) {
-        case 'admin_2tech':
-          router.push("/implantador"); 
-          break;
-        case 'implantador':
-          router.push("/implantador");
-          break;
-        case 'client_master':
-        case 'client_participant':
-          router.push("/");
-          break;
-        default:
-          router.push("/");
+      // Role-based redirection
+      if (user.globalRole === 'admin_2tech') {
+        router.push("/implantador");
+        return;
+      }
+      
+      if (user.globalRole === 'implantador') {
+        router.push("/implantador");
+        return;
+      }
+
+      if (user.globalRole === 'client_pending') {
+        router.push("/pending-approval");
+        return;
+      }
+
+      if (user.globalRole === 'client_master' || user.globalRole === 'client_participant') {
+        router.push("/");
+        return;
+      }
+
+      // If user doc doesn't exist yet but auth is active, stay or error
+      if (!user.globalRole) {
+        toast({ 
+          variant: "destructive", 
+          title: "Acesso Não Configurado", 
+          description: "Seu perfil ainda não foi configurado. Entre em contato com a equipe 2tech." 
+        });
       }
     }
-  }, [user, loading, router, searchParams]);
+  }, [user, loading, router, searchParams, toast]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,6 +118,16 @@ export default function LoginPage() {
               <Button type="submit" className="w-full h-12 font-bold" disabled={isLoggingIn}>
                 {isLoggingIn ? "Entrando..." : "Entrar na Jornada"}
               </Button>
+              
+              <div className="w-full pt-4 border-t border-slate-100 flex flex-col items-center gap-3">
+                <p className="text-xs text-slate-500">Minha empresa está em implantação e ainda não tenho acesso.</p>
+                <Button variant="outline" className="w-full font-bold border-primary text-primary hover:bg-primary/5" asChild>
+                  <Link href="/register">
+                    <UserPlus className="w-4 h-4 mr-2" /> Solicitar acesso
+                  </Link>
+                </Button>
+                <p className="text-[10px] text-slate-400">O acesso será liberado apenas após validação da equipe responsável.</p>
+              </div>
             </CardFooter>
           </form>
         </Card>

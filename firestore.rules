@@ -1,3 +1,4 @@
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -29,36 +30,44 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read: if isAuthenticated() && (request.auth.uid == uid || isAdmin() || isImplantador());
-      allow create: if isAdmin();
+      // Admin cria admin, Autocadastro cria pendente
+      allow create: if isAdmin() || (isAuthenticated() && request.auth.uid == uid && request.resource.data.globalRole == 'client_pending');
       allow update: if isAdmin() || (
         isAuthenticated() && 
         request.auth.uid == uid && 
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['globalRole', 'active', 'companyId', 'implementationId', 'uid', 'email'])
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['globalRole', 'active', 'companyId', 'implementationId', 'uid', 'email', 'approvalStatus'])
       );
+      allow delete: if isAdmin();
+    }
+
+    match /accessRequests/{requestId} {
+      allow read: if isAdmin() || isImplantador() || (isAuthenticated() && resource.data.uid == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
+      allow update: if isAdmin() || isImplantador();
       allow delete: if isAdmin();
     }
 
     match /companies/{companyId} {
       allow read: if isAdmin() || isImplantador() || belongsToCompany(companyId);
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isImplantador();
     }
 
     match /implementations/{implId} {
       allow read: if isAdmin() || isImplantador() || belongsToImplementation(implId);
       allow update: if isAdmin() || isImplantador();
-      allow create, delete: if isAdmin();
+      allow create, delete: if isAdmin() || isImplantador();
     }
 
     match /implementationMembers/{memberId} {
       allow read: if isAdmin() || isImplantador() || belongsToImplementation(resource.data.implementationId);
-      allow create: if isAdmin() || (isAuthenticated() && isClientMaster(request.resource.data.companyId));
-      allow update, delete: if isAdmin() || (isAuthenticated() && isClientMaster(resource.data.companyId));
+      allow create: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(request.resource.data.companyId));
+      allow update, delete: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(resource.data.companyId));
     }
 
     match /invites/{inviteId} {
       allow read: if true;
-      allow create: if isAdmin() || (isAuthenticated() && isClientMaster(request.resource.data.companyId));
-      allow update, delete: if isAdmin() || (isAuthenticated() && isClientMaster(resource.data.companyId));
+      allow create: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(request.resource.data.companyId));
+      allow update, delete: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(resource.data.companyId));
     }
 
     match /moduleProgress/{progressId} {
@@ -72,8 +81,8 @@ service cloud.firestore {
 
     match /meetings/{meetingId} {
       allow read: if isAdmin() || isImplantador() || belongsToImplementation(resource.data.implementationId);
-      allow create: if isAdmin() || (isAuthenticated() && isClientMaster(request.resource.data.companyId));
-      allow update: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(resource.data.companyId));
+      allow create: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(request.resource.data.companyId));
+      allow update: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(request.resource.data.companyId));
     }
 
     match /quizSubmissions/{subId} {

@@ -10,26 +10,26 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Users, CheckCircle, Clock, Search, MessageSquare } from "lucide-react";
+import { Users, CheckCircle, Clock, Search, MessageSquare, UserCheck, ShieldAlert } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import Link from "next/link";
+import { AccessRequestsTab } from "./access-requests/AccessRequestsTab";
 
 export default function ImplantadorPage() {
   const { user } = useUser();
   const db = getFirestore();
-  const { toast } = useToast();
   
   const [implementations, setImplementations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
 
   useEffect(() => {
-    // Subscribe to all implementations (Admin view for now)
+    // 1. Subscribe to implementations
     const q = query(collection(db, "implementations"));
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
+    const unsubscribeImpl = onSnapshot(q, async (snapshot) => {
       const impls = await Promise.all(snapshot.docs.map(async (d) => {
         const data = d.data();
-        // Get company name
         const companySnap = await getDocs(query(collection(db, "companies"), where("id", "==", data.companyId)));
         const companyName = companySnap.empty ? "Desconhecida" : companySnap.docs[0].data().name;
         return { id: d.id, companyName, ...data };
@@ -38,7 +38,16 @@ export default function ImplantadorPage() {
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    // 2. Count pending requests
+    const qRequests = query(collection(db, "accessRequests"), where("status", "==", "pending"));
+    const unsubscribeRequests = onSnapshot(qRequests, (snapshot) => {
+      setPendingRequestsCount(snapshot.size);
+    });
+
+    return () => {
+      unsubscribeImpl();
+      unsubscribeRequests();
+    };
   }, [db]);
 
   const filteredImpls = implementations.filter(i => 
@@ -60,7 +69,7 @@ export default function ImplantadorPage() {
           </div>
           <div className="flex gap-4">
             <Button variant="ghost" className="text-white hover:bg-white/10" asChild>
-              <Link href="/">Voltar ao App</Link>
+              <Link href="/">Ir para o App</Link>
             </Button>
             <div className="w-10 h-10 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center font-bold">
               {user?.name?.substring(0, 1)}
@@ -71,7 +80,7 @@ export default function ImplantadorPage() {
         <main className="max-w-7xl mx-auto p-8">
           <header className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
             <div>
-              <h2 className="text-3xl font-headline font-bold text-slate-900">Gerenciamento de Clientes</h2>
+              <h2 className="text-3xl font-headline font-bold text-slate-900">Gestão de Clientes</h2>
               <p className="text-slate-500 mt-1 italic">Acompanhe, valide evidências e libere os próximos passos da jornada.</p>
             </div>
             <div className="relative w-full md:w-80">
@@ -88,7 +97,14 @@ export default function ImplantadorPage() {
           <Tabs defaultValue="active" className="space-y-8">
             <TabsList className="bg-slate-200/50 p-1 h-12">
               <TabsTrigger value="active" className="px-6 h-10 font-bold">Em Andamento</TabsTrigger>
-              <TabsTrigger value="waiting" className="px-6 h-10 font-bold">Aguardando Revisão</TabsTrigger>
+              <TabsTrigger value="requests" className="px-6 h-10 font-bold relative">
+                Solicitações de Acesso
+                {pendingRequestsCount > 0 && (
+                  <Badge className="absolute -top-2 -right-2 bg-red-500 text-white w-5 h-5 p-0 flex items-center justify-center rounded-full text-[10px]">
+                    {pendingRequestsCount}
+                  </Badge>
+                )}
+              </TabsTrigger>
               <TabsTrigger value="completed" className="px-6 h-10 font-bold">Concluídos</TabsTrigger>
             </TabsList>
 
@@ -126,7 +142,7 @@ export default function ImplantadorPage() {
                           <div className="flex flex-col">
                             <span className="text-[10px] text-slate-400 font-bold uppercase">Membros</span>
                             <span className="font-bold text-slate-700 flex items-center gap-1">
-                              <Users className="w-3.5 h-3.5" /> 4 Ativos
+                              <Users className="w-3.5 h-3.5" /> Ativos
                             </span>
                           </div>
                           <div className="flex flex-col">
@@ -149,6 +165,17 @@ export default function ImplantadorPage() {
                   ))
                 )}
               </div>
+            </TabsContent>
+
+            <TabsContent value="requests">
+              <AccessRequestsTab />
+            </TabsContent>
+            
+            <TabsContent value="completed">
+               <div className="py-20 text-center bg-white rounded-3xl border border-dashed border-slate-300">
+                  <CheckCircle className="w-12 h-12 text-slate-200 mx-auto mb-4" />
+                  <p className="text-slate-500 font-medium">Histórico de implantações concluídas aparecerá aqui.</p>
+               </div>
             </TabsContent>
           </Tabs>
         </main>
