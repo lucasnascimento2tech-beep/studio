@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getFirestore, collection, query, where, onSnapshot, getDocs } from "firebase/firestore";
+import { getFirestore, collection, query, where, onSnapshot } from "firebase/firestore";
 import { useUser } from "@/firebase";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
@@ -19,47 +19,46 @@ export default function ImplantadorPage() {
   const db = getFirestore();
   
   const [implementations, setImplementations] = useState<any[]>([]);
+  const [companies, setCompanies] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
 
   useEffect(() => {
-    const q = query(collection(db, "implementations"));
-    const unsubscribeImpl = onSnapshot(q, async (snapshot) => {
-      try {
-        const impls = await Promise.all(snapshot.docs.map(async (d) => {
-          const data = d.data();
-          if (!data || !data.companyId) return { id: d.id, companyName: "Sem Empresa", ...data };
-          
-          try {
-            const companySnap = await getDocs(query(collection(db, "companies"), where("id", "==", data.companyId)));
-            const companyName = companySnap.empty ? "Empresa não encontrada" : companySnap.docs[0].data().name;
-            return { id: d.id, companyName, ...data };
-          } catch (err) {
-            return { id: d.id, companyName: "Erro ao buscar empresa", ...data };
-          }
-        }));
-        setImplementations(impls.filter(i => !!i));
-      } catch (err) {
-        console.error("Erro ao carregar implantações:", err);
-      }
+    // 1. Escutar empresas para ter o mapa de nomes (JOIN em memória é mais seguro e rápido para o cliente)
+    const unsubscribeCompanies = onSnapshot(collection(db, "companies"), (snap) => {
+      const companyMap: Record<string, string> = {};
+      snap.docs.forEach(doc => {
+        companyMap[doc.id] = doc.data().name || "Sem Nome";
+      });
+      setCompanies(companyMap);
+    });
+
+    // 2. Escutar implantações
+    const qImpl = query(collection(db, "implementations"));
+    const unsubscribeImpl = onSnapshot(qImpl, (snapshot) => {
+      const impls = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setImplementations(impls);
       setLoading(false);
     });
 
+    // 3. Contagem de solicitações pendentes
     const qRequests = query(collection(db, "accessRequests"), where("status", "==", "pending"));
     const unsubscribeRequests = onSnapshot(qRequests, (snapshot) => {
       setPendingRequestsCount(snapshot.size);
     });
 
     return () => {
+      unsubscribeCompanies();
       unsubscribeImpl();
       unsubscribeRequests();
     };
   }, [db]);
 
-  const filteredImpls = implementations.filter(i => 
-    i && i.companyName && i.companyName.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredImpls = implementations.filter(i => {
+    const cName = companies[i.companyId] || "Carregando...";
+    return cName.toLowerCase().includes(searchTerm.toLowerCase());
+  });
 
   return (
     <AuthGuard allowedRoles={['implantador', 'admin_2tech']}>
@@ -131,13 +130,13 @@ export default function ImplantadorPage() {
                       <CardHeader className="pb-4">
                         <div className="flex justify-between items-start mb-2">
                           <Badge variant="outline" className="text-[10px] font-bold uppercase tracking-wider bg-slate-50">
-                            ID: {impl.id.substring(0, 8)}
+                            ID: {impl.id?.substring(0, 8) || "..."}
                           </Badge>
                           <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 border-none">
                             {impl.status || 'Status'}
                           </Badge>
                         </div>
-                        <CardTitle className="text-xl font-bold text-slate-900">{impl.companyName || 'Sem Nome'}</CardTitle>
+                        <CardTitle className="text-xl font-bold text-slate-900">{companies[impl.companyId] || 'Carregando...'}</CardTitle>
                       </CardHeader>
                       <CardContent className="space-y-4">
                         <div className="flex items-center justify-between text-sm">
