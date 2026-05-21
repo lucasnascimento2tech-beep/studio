@@ -8,20 +8,35 @@ import { journeyPhases } from "@/data/journeyData";
 import { ProgressHeader } from "@/components/journey/ProgressHeader";
 import { PhaseCard } from "@/components/journey/PhaseCard";
 import { Button } from "@/components/ui/button";
-import { Settings, Info, Trophy, Rocket, LogOut, User, Users } from "lucide-react";
+import { Settings, Info, Trophy, Rocket, LogOut, User, Users, Shield } from "lucide-react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { ProgressState, PhaseStatus } from "@/types/journey";
 import { getAuth, signOut } from "firebase/auth";
+import { useRouter } from "next/navigation";
 
 export default function Home() {
   const { user, loading: authLoading } = useUser();
   const [progress, setProgress] = useState<ProgressState | null>(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   useEffect(() => {
-    if (authLoading || !user?.implementationId) {
-      if (!authLoading) setLoading(false);
+    if (authLoading) return;
+
+    if (!user) {
+      router.push("/login");
+      return;
+    }
+
+    // Role-based redirection if accessing the root
+    if (user.globalRole === 'implantador' || user.globalRole === 'admin_2tech') {
+      router.push("/implantador");
+      return;
+    }
+
+    if (!user.implementationId) {
+      setLoading(false);
       return;
     }
 
@@ -32,7 +47,6 @@ export default function Home() {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      // Filtramos apenas os módulos concluídos pelo usuário atual para a barra de progresso individual
       const completedModules = snapshot.docs
         .filter(d => d.data().uid === user.uid && d.data().status === 'completed')
         .map(d => d.data().moduleId);
@@ -45,7 +59,6 @@ export default function Home() {
         }
       });
 
-      // Lógica inicial de status das fases (pode ser evoluída para vir do Firestore)
       const phaseStatus: Record<string, PhaseStatus> = {};
       journeyPhases.forEach((p, idx) => {
         if (idx === 0) phaseStatus[p.id] = 'InProgress';
@@ -64,7 +77,7 @@ export default function Home() {
     });
 
     return () => unsubscribe();
-  }, [user, authLoading]);
+  }, [user, authLoading, router]);
 
   const handleLogout = () => {
     signOut(getAuth());
