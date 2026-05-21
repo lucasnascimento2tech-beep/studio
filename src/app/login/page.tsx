@@ -28,10 +28,8 @@ export default function LoginPage() {
         return;
       }
 
-      // Redirecionamento por Perfil
       switch (user.globalRole) {
         case 'admin_2tech':
-          // TODO: Mover para /admin quando a rota for criada
           router.push("/implantador"); 
           break;
         case 'implantador':
@@ -56,11 +54,10 @@ export default function LoginPage() {
       await signInWithEmailAndPassword(auth, email, password);
       toast({ title: "Bem-vindo!", description: "Login realizado com sucesso." });
     } catch (error: any) {
-      console.error("Erro de autenticação:", error.code, error.message);
-      
       let errorMessage = "E-mail ou senha inválidos.";
       if (error.code === 'auth/invalid-api-key') errorMessage = "Configuração do Firebase inválida.";
       else if (error.code === 'auth/operation-not-allowed') errorMessage = "E-mail/Senha desativado no Firebase.";
+      else if (error.code === 'auth/invalid-credential') errorMessage = "Credenciais inválidas. Verifique seu e-mail e senha.";
       
       toast({ variant: "destructive", title: "Erro no login", description: errorMessage });
     } finally {

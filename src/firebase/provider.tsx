@@ -1,10 +1,10 @@
-
 'use client';
 
 import { createContext, useContext, ReactNode } from 'react';
 import { FirebaseApp } from 'firebase/app';
 import { Firestore } from 'firebase/firestore';
 import { Auth } from 'firebase/auth';
+import { FirebaseErrorListener } from '@/components/FirebaseErrorListener';
 
 interface FirebaseContextValue {
   firebaseApp: FirebaseApp;
@@ -22,6 +22,7 @@ export function FirebaseProvider({
 }: FirebaseContextValue & { children: ReactNode }) {
   return (
     <FirebaseContext.Provider value={{ firebaseApp, firestore, auth }}>
+      <FirebaseErrorListener />
       {children}
     </FirebaseContext.Provider>
   );
