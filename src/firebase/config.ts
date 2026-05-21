@@ -1,20 +1,29 @@
 
 /**
- * IMPORTANTE: Substitua os valores abaixo pelos dados do seu projeto no Console do Firebase.
- * Vá em Configurações do Projeto > Geral > Seus aplicativos > Configuração do SDK.
+ * CONFIGURAÇÃO DO FIREBASE
+ * 
+ * Para conectar seu app, siga estes passos:
+ * 1. Vá para o Console do Firebase (https://console.firebase.google.com/)
+ * 2. Selecione seu projeto.
+ * 3. Clique no ícone de engrenagem (Configurações do Projeto) > Geral.
+ * 4. Role até "Seus aplicativos" e selecione seu Web App (ou crie um se não existir).
+ * 5. Copie os valores do objeto 'firebaseConfig' e cole abaixo.
  */
+
 export const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "placeholder-api-key",
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "placeholder-auth-domain",
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "placeholder-project-id",
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "placeholder-storage-bucket",
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "placeholder-sender-id",
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "placeholder-app-id",
+  // SUBSTITUA OS VALORES ABAIXO:
+  apiKey: "COLE_AQUI_SUA_API_KEY",
+  authDomain: "COLE_AQUI_SEU_AUTH_DOMAIN",
+  projectId: "COLE_AQUI_SEU_PROJECT_ID",
+  storageBucket: "COLE_AQUI_SEU_STORAGE_BUCKET",
+  messagingSenderId: "COLE_AQUI_SEU_SENDER_ID",
+  appId: "COLE_AQUI_SEU_APP_ID",
 };
 
-// Log de aviso se os placeholders ainda estiverem presentes
-if (typeof window !== 'undefined' && firebaseConfig.apiKey === "placeholder-api-key") {
+// Log de segurança para verificar se o desenvolvedor esqueceu de configurar
+if (typeof window !== 'undefined' && firebaseConfig.apiKey === "COLE_AQUI_SUA_API_KEY") {
   console.warn(
-    "⚠️ FIREBASE: A API Key não foi configurada. O login não funcionará até que você preencha src/firebase/config.ts ou as variáveis de ambiente."
+    "⚠️ ATENÇÃO: Você ainda não configurou suas chaves do Firebase em src/firebase/config.ts. " +
+    "O sistema não funcionará até que você insira as credenciais do seu projeto."
   );
 }
