@@ -2,9 +2,7 @@
 "use client";
 
 import { useState } from "react";
-import { useAuth } from "@/firebase/auth/use-user";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { getAuth } from "firebase/auth";
+import { signInWithEmailAndPassword, getAuth } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

@@ -76,7 +76,7 @@ export interface ImplementationMember {
 
 export interface ProgressState {
   completedModules: string[];
-  uploadedEvidence: Record<string, { name: string; date: string; status: string }>;
+  uploadedEvidence: Record<string, { name: string; date?: string; status?: string }>;
   quizScores: Record<string, number>;
   meetingStatus: Record<string, string>;
   phaseStatus: Record<string, PhaseStatus>;

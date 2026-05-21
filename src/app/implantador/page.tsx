@@ -1,135 +1,158 @@
 
 "use client";
 
-import { useJourneyStore } from "@/hooks/useJourneyStore";
-import { journeyPhases } from "@/data/journeyData";
-import { Button } from "@/components/ui/button";
+import { useEffect, useState } from "react";
+import { getFirestore, collection, query, where, onSnapshot, getDocs } from "firebase/firestore";
+import { useUser } from "@/firebase";
+import { AuthGuard } from "@/components/auth/AuthGuard";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, CheckCircle, XCircle, FileText, User, MessageSquare } from "lucide-react";
-import Link from "next/link";
-import { cn } from "@/lib/utils";
-import { useState } from "react";
-import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { Users, CheckCircle, Clock, Search, MessageSquare } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import Link from "next/link";
 
 export default function ImplantadorPage() {
-  const { progress, isLoaded, approvePhase, rejectPhase, resetProgress } = useJourneyStore();
+  const { user } = useUser();
+  const db = getFirestore();
   const { toast } = useToast();
-  const [notes, setNotes] = useState<Record<string, string>>({});
+  
+  const [implementations, setImplementations] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
 
-  if (!isLoaded) return null;
+  useEffect(() => {
+    // Subscribe to all implementations (Admin view for now)
+    const q = query(collection(db, "implementations"));
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      const impls = await Promise.all(snapshot.docs.map(async (d) => {
+        const data = d.data();
+        // Get company name
+        const companySnap = await getDocs(query(collection(db, "companies"), where("id", "==", data.companyId)));
+        const companyName = companySnap.empty ? "Desconhecida" : companySnap.docs[0].data().name;
+        return { id: d.id, companyName, ...data };
+      }));
+      setImplementations(impls);
+      setLoading(false);
+    });
 
-  const handleApprove = (phaseId: string) => {
-    approvePhase(phaseId);
-    toast({ title: "Fase Aprovada", description: "O cliente foi notificado e a próxima fase foi liberada." });
-  };
+    return () => unsubscribe();
+  }, [db]);
 
-  const handleReject = (phaseId: string) => {
-    if (!notes[phaseId]) {
-      toast({ title: "Observação necessária", description: "Explique o motivo da pendência.", variant: "destructive" });
-      return;
-    }
-    rejectPhase(phaseId, notes[phaseId]);
-    toast({ title: "Status Atualizado", description: "Fase marcada com pendência de ajuste." });
-  };
+  const filteredImpls = implementations.filter(i => 
+    i.companyName.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <nav className="bg-slate-900 text-white py-4 px-6 flex justify-between items-center sticky top-0 z-20">
-        <div className="flex items-center gap-3">
-          <Badge className="bg-blue-600">MODO IMPLANTADOR</Badge>
-          <h1 className="font-bold text-lg">Portal Especialista 2tech</h1>
-        </div>
-        <div className="flex gap-4">
-          <Button variant="ghost" className="text-white hover:bg-white/10" asChild>
-            <Link href="/">Voltar ao App</Link>
-          </Button>
-          <Button variant="destructive" size="sm" onClick={() => { if(confirm("Deseja resetar todo o progresso simulado?")) resetProgress(); }}>
-            Resetar Simulação
-          </Button>
-        </div>
-      </nav>
+    <AuthGuard allowedRoles={['implantador', 'admin_2tech']}>
+      <div className="min-h-screen bg-slate-50">
+        <nav className="bg-slate-900 text-white py-4 px-8 flex justify-between items-center sticky top-0 z-30 shadow-xl">
+          <div className="flex items-center gap-4">
+            <div className="bg-blue-600 p-2 rounded-lg">
+              <CheckCircle className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="font-bold text-lg leading-none">Portal do Especialista</h1>
+              <span className="text-[10px] text-blue-400 font-bold uppercase tracking-widest">2tech Implantação</span>
+            </div>
+          </div>
+          <div className="flex gap-4">
+            <Button variant="ghost" className="text-white hover:bg-white/10" asChild>
+              <Link href="/">Voltar ao App</Link>
+            </Button>
+            <div className="w-10 h-10 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center font-bold">
+              {user?.name?.substring(0, 1)}
+            </div>
+          </div>
+        </nav>
 
-      <main className="max-w-5xl mx-auto p-6">
-        <div className="mb-8">
-          <h2 className="text-2xl font-headline font-bold text-slate-800">Visão Geral de Clientes</h2>
-          <p className="text-slate-500">Acompanhe as evidências, provas e solicite agendamentos.</p>
-        </div>
+        <main className="max-w-7xl mx-auto p-8">
+          <header className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
+            <div>
+              <h2 className="text-3xl font-headline font-bold text-slate-900">Gerenciamento de Clientes</h2>
+              <p className="text-slate-500 mt-1 italic">Acompanhe, valide evidências e libere os próximos passos da jornada.</p>
+            </div>
+            <div className="relative w-full md:w-80">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <Input 
+                placeholder="Buscar empresa..." 
+                className="pl-10 h-12 bg-white border-slate-200" 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+          </header>
 
-        <div className="space-y-8">
-          {journeyPhases.map((phase) => {
-            const status = progress.phaseStatus[phase.id] || (phase.order === 0 ? 'InProgress' : 'Locked');
-            const evidenceCount = phase.modules.filter(m => progress.uploadedEvidence[m.id]).length;
-            const requiredEvidence = phase.modules.filter(m => m.requiresEvidence).length;
+          <Tabs defaultValue="active" className="space-y-8">
+            <TabsList className="bg-slate-200/50 p-1 h-12">
+              <TabsTrigger value="active" className="px-6 h-10 font-bold">Em Andamento</TabsTrigger>
+              <TabsTrigger value="waiting" className="px-6 h-10 font-bold">Aguardando Revisão</TabsTrigger>
+              <TabsTrigger value="completed" className="px-6 h-10 font-bold">Concluídos</TabsTrigger>
+            </TabsList>
 
-            return (
-              <Card key={phase.id} className={cn(
-                "border-l-4",
-                status === 'Completed' ? "border-l-green-500" : "border-l-blue-500"
-              )}>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <div>
-                    <CardTitle className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                      Fase {phase.order}: {phase.title}
-                      {status === 'Completed' && <CheckCircle className="w-5 h-5 text-green-500" />}
-                    </CardTitle>
-                    <Badge variant="outline" className="mt-1">{status}</Badge>
+            <TabsContent value="active">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {filteredImpls.length === 0 ? (
+                  <div className="col-span-full py-20 text-center bg-white rounded-3xl border border-dashed border-slate-300">
+                    <Clock className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                    <p className="text-slate-500 font-medium">Nenhuma implantação encontrada.</p>
                   </div>
-                  <div className="text-right">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Evidências</p>
-                    <p className="text-lg font-bold text-slate-700">{evidenceCount} / {requiredEvidence}</p>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {/* Evidence Review */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="bg-white p-4 rounded-lg border shadow-sm">
-                      <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
-                        <FileText className="w-4 h-4" /> Arquivos Enviados
-                      </h4>
-                      <ul className="space-y-2">
-                        {phase.modules.filter(m => progress.uploadedEvidence[m.id]).map(m => (
-                          <li key={m.id} className="text-xs flex justify-between items-center bg-slate-50 p-2 rounded">
-                            <span className="font-medium text-slate-600">{m.title}</span>
-                            <span className="text-blue-600 underline cursor-pointer">{progress.uploadedEvidence[m.id].name}</span>
-                          </li>
-                        ))}
-                        {phase.modules.filter(m => m.requiresEvidence && !progress.uploadedEvidence[m.id]).map(m => (
-                          <li key={m.id} className="text-xs flex justify-between items-center bg-red-50 p-2 rounded text-red-600">
-                            <span>{m.title}</span>
-                            <span className="italic">Pendente</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-
-                    <div className="bg-white p-4 rounded-lg border shadow-sm">
-                      <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
-                        <MessageSquare className="w-4 h-4" /> Notas do Implantador
-                      </h4>
-                      <Textarea 
-                        placeholder="Adicione observações para o cliente..." 
-                        className="text-xs min-h-[80px]"
-                        value={notes[phase.id] || ""}
-                        onChange={(e) => setNotes({...notes, [phase.id]: e.target.value})}
-                      />
-                    </div>
-                  </div>
-                </CardContent>
-                <CardFooter className="bg-slate-50 border-t flex justify-end gap-3 p-4">
-                  <Button variant="outline" size="sm" onClick={() => handleReject(phase.id)} disabled={status === 'Completed'}>
-                    Marcar Pendência
-                  </Button>
-                  <Button className="bg-green-600 hover:bg-green-700 text-white" size="sm" onClick={() => handleApprove(phase.id)} disabled={status === 'Completed'}>
-                    Aprovar Fase
-                  </Button>
-                </CardFooter>
-              </Card>
-            );
-          })}
-        </div>
-      </main>
-    </div>
+                ) : (
+                  filteredImpls.map(impl => (
+                    <Card key={impl.id} className="border-none shadow-lg hover:shadow-2xl transition-all group overflow-hidden bg-white">
+                      <div className="h-2 bg-primary w-full group-hover:h-3 transition-all" />
+                      <CardHeader className="pb-4">
+                        <div className="flex justify-between items-start mb-2">
+                          <Badge variant="outline" className="text-[10px] font-bold uppercase tracking-wider bg-slate-50">
+                            ID: {impl.id.substring(0, 8)}
+                          </Badge>
+                          <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 border-none">
+                            {impl.status}
+                          </Badge>
+                        </div>
+                        <CardTitle className="text-xl font-bold text-slate-900">{impl.companyName}</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-slate-500 font-medium">Progresso Geral:</span>
+                          <span className="font-bold text-primary">{impl.progressPercent || 0}%</span>
+                        </div>
+                        <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-primary transition-all duration-1000" style={{ width: `${impl.progressPercent || 0}%` }} />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 pt-4 border-t">
+                          <div className="flex flex-col">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase">Membros</span>
+                            <span className="font-bold text-slate-700 flex items-center gap-1">
+                              <Users className="w-3.5 h-3.5" /> 4 Ativos
+                            </span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase">Próximo Encontro</span>
+                            <span className="font-bold text-slate-700 flex items-center gap-1">
+                              <Clock className="w-3.5 h-3.5" /> Pendente
+                            </span>
+                          </div>
+                        </div>
+                      </CardContent>
+                      <CardFooter className="bg-slate-50 p-4 gap-2">
+                        <Button className="w-full font-bold h-10 shadow-sm" asChild>
+                          <Link href={`/implantador/clients/${impl.id}`}>Gerenciar Jornada</Link>
+                        </Button>
+                        <Button variant="outline" size="icon" className="h-10 w-12 hover:bg-white">
+                          <MessageSquare className="w-4 h-4 text-slate-600" />
+                        </Button>
+                      </CardFooter>
+                    </Card>
+                  ))
+                )}
+              </div>
+            </TabsContent>
+          </Tabs>
+        </main>
+      </div>
+    </AuthGuard>
   );
 }
