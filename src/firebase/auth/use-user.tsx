@@ -14,26 +14,40 @@ export function useUser() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let unsubscribeDoc: (() => void) | null = null;
+
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
       if (firebaseUser) {
         const userDocRef = doc(db, 'users', firebaseUser.uid);
-        const unsubscribeDoc = onSnapshot(userDocRef, (docSnap) => {
+        
+        // Limpa inscrição anterior se existir
+        if (unsubscribeDoc) unsubscribeDoc();
+
+        unsubscribeDoc = onSnapshot(userDocRef, (docSnap) => {
           if (docSnap.exists()) {
-            setUser({ ...firebaseUser, ...(docSnap.data() as UserProfile) });
+            setUser({ ...firebaseUser, ...(docSnap.data() as UserProfile) } as any);
           } else {
+            // Se o documento não existe no Firestore ainda, mantém o user do Auth
             setUser(firebaseUser as any);
           }
           setLoading(false);
+        }, (error) => {
+          console.error("Erro ao escutar perfil do usuário:", error);
+          setUser(firebaseUser as any);
+          setLoading(false);
         });
-        return () => unsubscribeDoc();
       } else {
+        if (unsubscribeDoc) unsubscribeDoc();
         setUser(null);
         setLoading(false);
       }
     });
 
-    return () => unsubscribeAuth();
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeDoc) unsubscribeDoc();
+    };
   }, [auth, db]);
 
-  return { user, loading, useAuth: auth };
+  return { user, loading, auth };
 }
