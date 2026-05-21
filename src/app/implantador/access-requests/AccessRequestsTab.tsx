@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { AccessRequest, AreaType } from "@/types/journey";
 import { Loader2, UserX, Info, Building, MapPin, CheckCircle2, Users } from "lucide-react";
@@ -31,12 +32,12 @@ export function AccessRequestsTab() {
   const [approvalType, setApprovalType] = useState<'master' | 'participant' | 'reject' | null>(null);
   const [targetCompanyId, setTargetCompanyId] = useState<string>("");
   const [targetImplId, setTargetImplId] = useState<string>("");
+  const [selectedAreas, setSelectedAreas] = useState<string[]>([]);
   const [reviewComment, setReviewComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     setIsMounted(true);
-    // 1. Escutar solicitações
     const qReq = query(collection(db, "accessRequests"));
     const unsubscribeReq = onSnapshot(qReq, (snapshot) => {
       const reqList = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AccessRequest));
@@ -47,7 +48,6 @@ export function AccessRequestsTab() {
       setLoading(false);
     });
 
-    // 2. Buscar empresas e implantações para os selects
     const fetchData = async () => {
       try {
         const compSnap = await getDocs(collection(db, "companies"));
@@ -63,6 +63,12 @@ export function AccessRequestsTab() {
     return () => unsubscribeReq();
   }, [db]);
 
+  useEffect(() => {
+    if (selectedRequest && selectedRequest.requestedAreas) {
+      setSelectedAreas(selectedRequest.requestedAreas);
+    }
+  }, [selectedRequest]);
+
   if (!isMounted) return null;
 
   const resetForm = () => {
@@ -70,6 +76,7 @@ export function AccessRequestsTab() {
     setTargetCompanyId("");
     setTargetImplId("");
     setReviewComment("");
+    setSelectedAreas([]);
     setSelectedRequest(null);
   };
 
@@ -99,6 +106,7 @@ export function AccessRequestsTab() {
         let companyId = targetCompanyId;
         let implId = targetImplId;
 
+        // Caso seja uma nova empresa ou não selecionada, criamos tudo novo vinculado ao implantador atual
         if (!companyId || companyId === 'none') {
           const newCompanyRef = await addDoc(collection(db, "companies"), {
             name: selectedRequest.companyName || "Nova Empresa",
@@ -115,7 +123,7 @@ export function AccessRequestsTab() {
             companyId,
             status: "in_progress",
             currentPhaseId: "fase-0",
-            assignedImplantadorUid: currentUser?.uid,
+            assignedImplantadorUid: currentUser?.uid, // Vincula ao implantador que está aprovando
             progressPercent: 0,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
@@ -123,6 +131,15 @@ export function AccessRequestsTab() {
           implId = newImplRef.id;
           await updateDoc(newImplRef, { id: implId });
           await updateDoc(newCompanyRef, { activeImplementationId: implId });
+        } else {
+          // Se selecionou uma empresa existente, garante que o implantador atual assuma o controle se desejar
+          // Ou simplesmente mantemos o vínculo. Para "liberar para ele", vamos atualizar o implantador da implantação
+          if (implId) {
+            await updateDoc(doc(db, "implementations", implId), {
+              assignedImplantadorUid: currentUser?.uid,
+              updatedAt: serverTimestamp()
+            });
+          }
         }
 
         await updateDoc(userRef, {
@@ -151,9 +168,56 @@ export function AccessRequestsTab() {
           status: "approved",
           reviewedByUid: currentUser?.uid,
           reviewComment,
+          matchedCompanyId: companyId,
+          matchedImplementationId: implId,
           updatedAt: serverTimestamp()
         });
-        toast({ title: "Aprovado como Master" });
+        toast({ title: "Aprovado como Master", description: "O cliente agora faz parte do seu portal." });
+      } 
+      else if (approvalType === 'participant') {
+        if (!targetCompanyId || !targetImplId) {
+          toast({ title: "Erro", description: "Selecione a empresa e a implantação.", variant: "destructive" });
+          setSubmitting(false);
+          return;
+        }
+
+        await updateDoc(userRef, {
+          globalRole: "client_participant",
+          active: true,
+          approvalStatus: "approved",
+          companyId: targetCompanyId,
+          implementationId: targetImplId,
+          updatedAt: serverTimestamp()
+        });
+
+        // Garantir que o implantador que está aprovando assuma o controle dessa implantação
+        await updateDoc(doc(db, "implementations", targetImplId), {
+          assignedImplantadorUid: currentUser?.uid,
+          updatedAt: serverTimestamp()
+        });
+
+        await addDoc(collection(db, "implementationMembers"), {
+          implementationId: targetImplId,
+          companyId: targetCompanyId,
+          uid: selectedRequest.uid,
+          name: selectedRequest.name,
+          email: selectedRequest.email,
+          role: "participant",
+          areas: selectedAreas,
+          inviteStatus: "accepted",
+          active: true,
+          createdAt: serverTimestamp()
+        });
+
+        await updateDoc(requestRef, {
+          status: "approved",
+          reviewedByUid: currentUser?.uid,
+          reviewComment,
+          matchedCompanyId: targetCompanyId,
+          matchedImplementationId: targetImplId,
+          updatedAt: serverTimestamp()
+        });
+        toast({ title: "Participante Aprovado", description: "O participante foi vinculado e o cliente está sob sua gestão." });
       }
 
       resetForm();
@@ -223,6 +287,9 @@ export function AccessRequestsTab() {
                     <p className="font-medium">{formatDate(req.createdAt)}</p>
                   </div>
                 </div>
+                <div className="bg-slate-50 p-3 rounded-lg text-xs italic">
+                  "{req.justification || 'Sem justificativa'}"
+                </div>
               </CardContent>
               {req.status === 'pending' && (
                 <CardFooter className="bg-slate-50 p-4 border-t">
@@ -232,24 +299,94 @@ export function AccessRequestsTab() {
                         Avaliar Solicitação
                       </Button>
                     </DialogTrigger>
-                    <DialogContent className="sm:max-w-[600px]">
+                    <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
                       <DialogHeader><DialogTitle>Processar: {req?.name}</DialogTitle></DialogHeader>
                       <div className="space-y-6 py-4">
                         <div className="space-y-3">
-                          <Label>Como deseja aprovar?</Label>
+                          <Label>Tipo de Aprovação</Label>
                           <div className="grid grid-cols-3 gap-3">
-                            <Button variant={approvalType === 'master' ? 'default' : 'outline'} onClick={() => setApprovalType('master')}>Aprovar Master</Button>
-                            <Button variant={approvalType === 'reject' ? 'destructive' : 'outline'} onClick={() => setApprovalType('reject')}>Rejeitar</Button>
+                            <Button 
+                              variant={approvalType === 'master' ? 'default' : 'outline'} 
+                              onClick={() => { setApprovalType('master'); setTargetCompanyId(""); setTargetImplId(""); }}
+                              className="text-xs"
+                            >Novo Master</Button>
+                            <Button 
+                              variant={approvalType === 'participant' ? 'default' : 'outline'} 
+                              onClick={() => setApprovalType('participant')}
+                              className="text-xs"
+                            >Participante</Button>
+                            <Button 
+                              variant={approvalType === 'reject' ? 'destructive' : 'outline'} 
+                              onClick={() => setApprovalType('reject')}
+                              className="text-xs"
+                            >Rejeitar</Button>
                           </div>
                         </div>
+
+                        {(approvalType === 'master' || approvalType === 'participant') && (
+                          <div className="space-y-4 p-4 bg-slate-50 rounded-xl border">
+                            <div className="space-y-2">
+                              <Label>Vincular a Empresa</Label>
+                              <Select onValueChange={(v) => {
+                                setTargetCompanyId(v);
+                                const company = companies.find(c => c.id === v);
+                                if (company?.activeImplementationId) setTargetImplId(company.activeImplementationId);
+                              }} value={targetCompanyId}>
+                                <SelectTrigger><SelectValue placeholder="Selecione ou crie nova" /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="none">Criar Nova Empresa (CNPJ: {req?.cnpj})</SelectItem>
+                                  {companies.map(c => (
+                                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            {targetCompanyId && targetCompanyId !== "none" && (
+                              <div className="space-y-2">
+                                <Label>Vincular a Implantação</Label>
+                                <Select onValueChange={setTargetImplId} value={targetImplId}>
+                                  <SelectTrigger><SelectValue placeholder="Selecione a implantação" /></SelectTrigger>
+                                  <SelectContent>
+                                    {implementations.filter(i => i.companyId === targetCompanyId).map(i => (
+                                      <SelectItem key={i.id} value={i.id}>Implantação: {i.id.substring(0,8)}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            )}
+
+                            {approvalType === 'participant' && (
+                              <div className="space-y-3">
+                                <Label className="text-xs font-bold uppercase text-slate-400">Áreas de Acesso</Label>
+                                <div className="grid grid-cols-2 gap-2">
+                                  {['cadastros', 'operacional', 'financeiro', 'relatorios', 'gestao'].map(area => (
+                                    <div key={area} className="flex items-center space-x-2">
+                                      <Checkbox 
+                                        id={`area-${area}`} 
+                                        checked={selectedAreas.includes(area)}
+                                        onCheckedChange={(checked) => {
+                                          if(checked) setSelectedAreas([...selectedAreas, area]);
+                                          else setSelectedAreas(selectedAreas.filter(a => a !== area));
+                                        }}
+                                      />
+                                      <Label htmlFor={`area-${area}`} className="capitalize text-xs">{area}</Label>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                         <div className="space-y-2">
-                          <Label>Comentário</Label>
-                          <Textarea value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} />
+                          <Label>Comentário (Visível ao solicitante em caso de rejeição)</Label>
+                          <Textarea value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} placeholder="Opcional..." />
                         </div>
                       </div>
                       <DialogFooter>
-                        <Button onClick={handleProcessRequest} disabled={submitting || !approvalType}>
-                          {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirmar"}
+                        <Button onClick={handleProcessRequest} disabled={submitting || !approvalType} className="w-full">
+                          {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : "Confirmar Aprovação e Assumir Gestão"}
                         </Button>
                       </DialogFooter>
                     </DialogContent>

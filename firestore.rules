@@ -32,7 +32,7 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (request.auth.uid == uid || isAdmin() || isImplantador());
       // Admin cria admin, Autocadastro cria pendente
       allow create: if isAdmin() || (isAuthenticated() && request.auth.uid == uid && request.resource.data.globalRole == 'client_pending');
-      allow update: if isAdmin() || (
+      allow update: if isAdmin() || isImplantador() || (
         isAuthenticated() && 
         request.auth.uid == uid && 
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['globalRole', 'active', 'companyId', 'implementationId', 'uid', 'email', 'approvalStatus'])
@@ -67,7 +67,7 @@ service cloud.firestore {
     match /invites/{inviteId} {
       allow read: if true;
       allow create: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(request.resource.data.companyId));
-      allow update, delete: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(resource.data.companyId));
+      allow update, delete: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(request.resource.data.companyId));
     }
 
     match /moduleProgress/{progressId} {
