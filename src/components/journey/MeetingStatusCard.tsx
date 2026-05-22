@@ -13,7 +13,7 @@ import {
   AlertTriangle, Clock, ArrowRight, Unlock, Check
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Phase, ImplementationMember } from "@/types/journey";
+import { Phase } from "@/types/journey";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 
 interface MeetingStatusCardProps {
@@ -26,8 +26,6 @@ interface MeetingStatusCardProps {
   };
   userAreas: string[];
   isClientMaster: boolean;
-  members?: ImplementationMember[];
-  memberProgress?: Record<string, any>;
   onSchedule: (data: { date: string, time: string, notes: string }) => void;
   onMarkReadyForApproval?: (phaseId: string) => void;
 }
@@ -37,8 +35,6 @@ export function MeetingStatusCard({
   userProgress, 
   userAreas, 
   isClientMaster, 
-  members = [], 
-  memberProgress = {},
   onSchedule,
   onMarkReadyForApproval
 }: MeetingStatusCardProps) {

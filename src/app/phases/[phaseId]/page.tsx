@@ -13,49 +13,15 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { MeetingStatusCard } from "@/components/journey/MeetingStatusCard";
 import { useUser } from "@/firebase";
-import { useEffect, useState } from "react";
-import { getFirestore, collection, query, where, onSnapshot } from "firebase/firestore";
 import { useCurrentImplementationMember } from "@/hooks/useCurrentImplementationMember";
 import { canAccessModule } from "@/utils/permissions";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 
 export default function PhaseDetailPage() {
   const { phaseId } = useParams();
-  const router = useRouter();
   const { user } = useUser();
   const { progress, isLoaded, scheduleMeeting, markMeetingReadyForApproval } = useJourneyStore();
   const { effectiveAreas, loading: memberLoading } = useCurrentImplementationMember();
-  
-  const [members, setMembers] = useState<any[]>([]);
-  const [memberProgress, setMemberProgress] = useState<Record<string, any>>({});
-
-  useEffect(() => {
-    if (!user?.implementationId) return;
-
-    const db = getFirestore();
-    const mQuery = query(collection(db, "implementationMembers"), where("implementationId", "==", user.implementationId));
-    const unsubMembers = onSnapshot(mQuery, (snap) => {
-      setMembers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
-
-    const pQuery = query(collection(db, "moduleProgress"), where("implementationId", "==", user.implementationId));
-    const unsubProg = onSnapshot(pQuery, (snap) => {
-      const allProg: Record<string, any> = {};
-      snap.docs.forEach(d => {
-        const data = d.data();
-        if (!allProg[data.uid]) allProg[data.uid] = { completedModules: [] };
-        if (data.status === 'completed') {
-          allProg[data.uid].completedModules.push(data.moduleId);
-        }
-      });
-      setMemberProgress(allProg);
-    });
-
-    return () => {
-      unsubMembers();
-      unsubProg();
-    };
-  }, [user]);
 
   if (!isLoaded || memberLoading) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -207,8 +173,6 @@ export default function PhaseDetailPage() {
                   }}
                   userAreas={effectiveAreas}
                   isClientMaster={user?.globalRole === 'client_master'}
-                  members={members}
-                  memberProgress={memberProgress}
                   onSchedule={(data) => scheduleMeeting(phase.id, data)}
                   onMarkReadyForApproval={(pId) => markMeetingReadyForApproval(pId)}
                 />
