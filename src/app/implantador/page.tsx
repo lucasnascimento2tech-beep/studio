@@ -1,25 +1,24 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
-import { getFirestore, collection, query, where, onSnapshot, orderBy } from "firebase/firestore";
+import { useEffect, useState, useMemo } from "react";
+import { getFirestore, collection, query, where, onSnapshot } from "firebase/firestore";
 import { useUser } from "@/firebase";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Users, CheckCircle, Clock, Search, MessageSquare, Loader2, LayoutDashboard, Calendar, Check, X, Info } from "lucide-react";
+import { Search, Loader2, LayoutDashboard, Calendar, Check, X, Clock } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
 import { AccessRequestsTab } from "./access-requests/AccessRequestsTab";
 import { UserNav } from "@/components/layout/UserNav";
 import { useJourneyStore } from "@/hooks/useJourneyStore";
 import { useToast } from "@/hooks/use-toast";
-import { format } from "date-fns";
-import { ptBR } from "date-fns/locale";
 
 export default function ImplantadorPage() {
   const { user } = useUser();
@@ -31,7 +30,8 @@ export default function ImplantadorPage() {
   const [implementations, setImplementations] = useState<any[]>([]);
   const [companies, setCompanies] = useState<Record<string, any>>({});
   const [pendingMeetings, setPendingMeetings] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingImpls, setLoadingImpls] = useState(true);
+  const [loadingMeetings, setLoadingMeetings] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
 
@@ -40,12 +40,15 @@ export default function ImplantadorPage() {
 
   useEffect(() => {
     setIsMounted(true);
-    if (!user?.uid) return;
-    
-    const isAdmin = user.globalRole === 'admin_2tech';
+  }, []);
 
-    // 1. Escutar Empresas (Limitado a empresas relacionadas se for implantador comum)
-    const unsubscribeCompanies = onSnapshot(collection(db, "companies"), (snap) => {
+  const isAdmin = user?.globalRole === 'admin_2tech';
+
+  // 1. Listener: Empresas
+  useEffect(() => {
+    if (!isMounted || !user?.uid) return;
+
+    const unsubscribe = onSnapshot(collection(db, "companies"), (snap) => {
       const companyMap: Record<string, any> = {};
       snap.docs.forEach(doc => {
         companyMap[doc.id] = doc.data();
@@ -53,7 +56,13 @@ export default function ImplantadorPage() {
       setCompanies(companyMap);
     });
 
-    // 2. Escutar Implantações (Regra de escopo aplicada aqui)
+    return () => unsubscribe();
+  }, [db, user?.uid, isMounted]);
+
+  // 2. Listener: Implantações
+  useEffect(() => {
+    if (!isMounted || !user?.uid) return;
+
     let qImpl;
     if (isAdmin) {
       qImpl = query(collection(db, "implementations"));
@@ -64,50 +73,70 @@ export default function ImplantadorPage() {
       );
     }
 
-    const unsubscribeImpl = onSnapshot(qImpl, (snapshot) => {
-      const impls = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      setImplementations(impls);
-      
-      // 3. Escutar Encontros para Avaliar (Filtrar por implantações do usuário)
-      const assignedIds = impls.map(i => i.id);
-      
-      const qMeetings = query(
-        collection(db, "meetings"), 
-        where("status", "in", ["WaitingApproval", "PendingAdjustments"])
-      );
-
-      const unsubscribeMeetings = onSnapshot(qMeetings, (meetSnap) => {
-        const allMeetings = meetSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        // Filtro de escopo no frontend para garantir conformidade
-        if (isAdmin) {
-          setPendingMeetings(allMeetings);
-        } else {
-          setPendingMeetings(allMeetings.filter(m => assignedIds.includes(m.implementationId)));
-        }
-        setLoading(false);
-      });
-
-      return () => unsubscribeMeetings();
+    const unsubscribe = onSnapshot(qImpl, (snapshot) => {
+      setImplementations(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      setLoadingImpls(false);
+    }, (err) => {
+      console.error("Erro implementations:", err);
+      setLoadingImpls(false);
     });
 
-    // 4. Escutar Solicitações Pendentes (Admin vê todas, Implantador vê para triagem)
+    return () => unsubscribe();
+  }, [db, user?.uid, user?.globalRole, isMounted, isAdmin]);
+
+  // Chave estável para o listener de meetings não recriar desnecessariamente
+  const implementationIdsKey = useMemo(() => 
+    implementations.map(i => i.id).sort().join(","),
+  [implementations]);
+
+  // 3. Listener: Encontros para Validar
+  useEffect(() => {
+    if (!isMounted || !user?.uid) return;
+
+    const assignedIds = implementations.map(i => i.id);
+    
+    // Se for implantador e não tiver clientes, não precisa escutar meetings
+    if (!isAdmin && assignedIds.length === 0 && !loadingImpls) {
+      setPendingMeetings([]);
+      setLoadingMeetings(false);
+      return;
+    }
+
+    const qMeetings = query(
+      collection(db, "meetings"), 
+      where("status", "in", ["WaitingApproval", "PendingAdjustments"])
+    );
+
+    const unsubscribe = onSnapshot(qMeetings, (meetSnap) => {
+      const allMeetings = meetSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (isAdmin) {
+        setPendingMeetings(allMeetings);
+      } else {
+        setPendingMeetings(allMeetings.filter(m => assignedIds.includes(m.implementationId)));
+      }
+      setLoadingMeetings(false);
+    }, (err) => {
+      console.error("Erro meetings:", err);
+      setLoadingMeetings(false);
+    });
+
+    return () => unsubscribe();
+  }, [db, user?.uid, user?.globalRole, isMounted, isAdmin, implementationIdsKey, loadingImpls]);
+
+  // 4. Listener: Solicitações de Acesso
+  useEffect(() => {
+    if (!isMounted || !user?.uid) return;
+
     const qRequests = query(collection(db, "accessRequests"), where("status", "==", "pending"));
-    const unsubscribeRequests = onSnapshot(qRequests, (snapshot) => {
+    const unsubscribe = onSnapshot(qRequests, (snapshot) => {
       setPendingRequestsCount(snapshot.size);
     });
 
-    return () => {
-      unsubscribeCompanies();
-      unsubscribeImpl();
-      unsubscribeRequests();
-    };
-  }, [db, user]);
+    return () => unsubscribe();
+  }, [db, user?.uid, isMounted]);
 
   const handleApprove = async (meet: any) => {
-    // Validação extra de escopo antes de processar
-    const isAdmin = user?.globalRole === 'admin_2tech';
     const isAssigned = implementations.some(i => i.id === meet.implementationId);
-    
     if (!isAdmin && !isAssigned) {
       toast({ variant: "destructive", title: "Ação não permitida", description: "Esta implantação não está sob sua responsabilidade." });
       return;
@@ -131,9 +160,7 @@ export default function ImplantadorPage() {
   };
 
   const handleRequestAdjustments = async (meet: any) => {
-    const isAdmin = user?.globalRole === 'admin_2tech';
     const isAssigned = implementations.some(i => i.id === meet.implementationId);
-    
     if (!isAdmin && !isAssigned) {
       toast({ variant: "destructive", title: "Ação não permitida", description: "Esta implantação não está sob sua responsabilidade." });
       return;
@@ -163,6 +190,8 @@ export default function ImplantadorPage() {
 
   if (!isMounted) return null;
 
+  const loading = loadingImpls || (loadingMeetings && implementations.length > 0);
+
   const filteredImpls = implementations.filter(i => {
     const cName = companies[i.companyId]?.name || "Sem Nome";
     return cName.toLowerCase().includes(searchTerm.toLowerCase());
@@ -189,7 +218,7 @@ export default function ImplantadorPage() {
             <div>
               <h2 className="text-3xl font-headline font-bold text-slate-900">Painel de Controle</h2>
               <p className="text-slate-500 mt-1 italic">
-                {user?.globalRole === 'admin_2tech' ? 'Gestão global de todas as implantações.' : 'Gestão individual de seus participantes e empresas.'}
+                {isAdmin ? 'Gestão global de todas as implantações.' : 'Gestão individual de seus participantes e empresas.'}
               </p>
             </div>
             <div className="relative w-full md:w-80">
@@ -260,7 +289,7 @@ export default function ImplantadorPage() {
                           <div className="flex flex-col">
                             <span className="text-[10px] text-slate-400 font-bold uppercase">Responsável</span>
                             <span className="font-bold text-slate-700 text-xs truncate">
-                              {impl.assignedImplantadorUid === user?.uid ? "Você" : "Outro Especialista"}
+                              {impl.assignedImplantadorUid === user?.uid ? "Você" : "Especialista"}
                             </span>
                           </div>
                           <div className="flex flex-col">
@@ -282,7 +311,9 @@ export default function ImplantadorPage() {
 
             <TabsContent value="meetings">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {pendingMeetings.length === 0 ? (
+                {loading ? (
+                   <div className="col-span-full py-20 text-center"><Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" /></div>
+                ) : pendingMeetings.length === 0 ? (
                   <div className="col-span-full py-20 text-center bg-white rounded-3xl border border-dashed">
                     <Calendar className="w-12 h-12 text-slate-200 mx-auto mb-4" />
                     <p className="text-slate-500">Nenhum encontro aguardando validação nas suas implantações.</p>
