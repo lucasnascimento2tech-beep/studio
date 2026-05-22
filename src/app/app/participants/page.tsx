@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { getFirestore, collection, query, where, onSnapshot, addDoc, serverTimestamp, deleteDoc, doc } from "firebase/firestore";
+import { getFirestore, collection, query, where, onSnapshot, addDoc, serverTimestamp, deleteDoc, doc, getDoc } from "firebase/firestore";
 import { useUser } from "@/firebase";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ export default function ParticipantsPage() {
   const [members, setMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [copiedToken, setCopiedToken] = useState("");
+  const [companyName, setCompanyName] = useState("");
 
   // Form State
   const [newName, setNewName] = useState("");
@@ -44,6 +45,18 @@ export default function ParticipantsPage() {
       setLoading(false);
     });
 
+    // Fetch company name to include in invites
+    const fetchCompanyName = async () => {
+      if (user?.companyId) {
+        const docRef = doc(db, "companies", user.companyId);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setCompanyName(docSnap.data().name);
+        }
+      }
+    };
+    fetchCompanyName();
+
     return () => unsubscribe();
   }, [user, db]);
 
@@ -62,6 +75,7 @@ export default function ParticipantsPage() {
         token,
         implementationId: user?.implementationId,
         companyId: user?.companyId,
+        companyName: companyName, // Agora incluímos o nome para acesso público
         name: newName,
         email: newEmail,
         areas: selectedAreas,
@@ -85,7 +99,7 @@ export default function ParticipantsPage() {
         isRequiredParticipant: isMandatory,
         requiredForMeetings: mandatoryMeetings,
         inviteStatus: "pending",
-        inviteToken: token, // Armazenando o token no membro para fácil cópia
+        inviteToken: token, 
         active: true,
         createdAt: serverTimestamp()
       });

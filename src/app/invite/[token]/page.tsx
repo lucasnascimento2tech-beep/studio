@@ -24,7 +24,7 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
 
   const [isMounted, setIsMounted] = useState(false);
   const [invite, setInvite] = useState<any>(null);
-  const [company, setCompany] = useState<any>(null);
+  const [companyName, setCompanyName] = useState("");
   const [loading, setLoading] = useState(true);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -52,14 +52,26 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
         const inviteData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
         
         const now = new Date();
-        if (inviteData.status === 'accepted') setInvite("accepted");
-        else if (inviteData.status === 'canceled') setInvite("canceled");
-        else if (inviteData.expiresAt && new Date(inviteData.expiresAt) < now) setInvite("expired");
-        else {
+        if (inviteData.status === 'accepted') {
+          setInvite("accepted");
+        } else if (inviteData.status === 'canceled') {
+          setInvite("canceled");
+        } else if (inviteData.expiresAt && new Date(inviteData.expiresAt) < now) {
+          setInvite("expired");
+        } else {
           setInvite(inviteData);
-          if (inviteData.companyId) {
-            const compSnap = await getDoc(doc(db, "companies", inviteData.companyId));
-            if (compSnap.exists()) setCompany(compSnap.data());
+          // Prefer use companyName from invite (publicly available)
+          if (inviteData.companyName) {
+            setCompanyName(inviteData.companyName);
+          } else if (inviteData.companyId) {
+            // Fallback for older invites (might fail if logged out)
+            try {
+              const compSnap = await getDoc(doc(db, "companies", inviteData.companyId));
+              if (compSnap.exists()) setCompanyName(compSnap.data().name);
+            } catch (e) {
+              console.log("Could not fetch company details publicly, showing placeholder.");
+              setCompanyName("Empresa em Implantação");
+            }
           }
         }
       } catch (err) {
@@ -201,7 +213,7 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
             <CardContent className="space-y-6">
               <div>
                 <Label className="text-xs text-slate-400 uppercase">Empresa</Label>
-                <p className="font-bold text-slate-800 text-lg">{company?.name || "Buscando empresa..."}</p>
+                <p className="font-bold text-slate-800 text-lg">{companyName || "Buscando empresa..."}</p>
               </div>
               <div>
                 <Label className="text-xs text-slate-400 uppercase">Seu Papel</Label>
