@@ -9,7 +9,7 @@ import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/componen
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Loader2, LayoutDashboard, Calendar, Check, X, Clock } from "lucide-react";
+import { Search, Loader2, LayoutDashboard, Calendar, Check, X, Clock, ShieldCheck } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Label } from "@/components/ui/label";
@@ -212,7 +212,14 @@ export default function ImplantadorPage() {
               <span className="text-[10px] text-blue-400 font-bold uppercase tracking-widest">Minha Gestão</span>
             </div>
           </div>
-          <UserNav user={user} />
+          <div className="flex items-center gap-4">
+            {isAdmin && (
+              <Button variant="secondary" size="sm" asChild className="font-bold hidden sm:flex bg-slate-700 text-white hover:bg-slate-600 border-none">
+                <Link href="/admin"><ShieldCheck className="w-4 h-4 mr-2" /> Painel administrativo</Link>
+              </Button>
+            )}
+            <UserNav user={user} />
+          </div>
         </nav>
 
         <main className="max-w-7xl mx-auto p-8">

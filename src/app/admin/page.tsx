@@ -162,7 +162,7 @@ export default function AdminDashboardPage() {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <Button variant="outline" size="sm" asChild className="text-white border-white/20 hover:bg-white/10 hidden sm:flex">
+            <Button variant="secondary" size="sm" asChild className="font-bold hidden sm:flex bg-blue-600 text-white hover:bg-blue-700 border-none">
               <Link href="/implantador"><LayoutDashboard className="w-4 h-4 mr-2" /> Painel operacional</Link>
             </Button>
             <UserNav user={user} />
