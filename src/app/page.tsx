@@ -9,17 +9,20 @@ import { ProgressHeader } from "@/components/journey/ProgressHeader";
 import { PhaseCard } from "@/components/journey/PhaseCard";
 import { MeetingStatusCard } from "@/components/journey/MeetingStatusCard";
 import { Button } from "@/components/ui/button";
-import { Settings, Info, Trophy, Rocket, UserPlus } from "lucide-react";
+import { Settings, Info, Trophy, Rocket, UserPlus, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/auth/AuthGuard";
-import { ProgressState, PhaseStatus, ImplementationMember } from "@/types/journey";
+import { ImplementationMember } from "@/types/journey";
 import { useRouter } from "next/navigation";
 import { UserNav } from "@/components/layout/UserNav";
 import { useJourneyStore } from "@/hooks/useJourneyStore";
+import { useCurrentImplementationMember } from "@/hooks/useCurrentImplementationMember";
 
 export default function Home() {
   const { user, loading: authLoading } = useUser();
   const { progress, isLoaded } = useJourneyStore();
+  const { effectiveAreas, loading: memberLoading, error: memberError } = useCurrentImplementationMember();
+  
   const [members, setMembers] = useState<ImplementationMember[]>([]);
   const [memberProgress, setMemberProgress] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
@@ -38,6 +41,11 @@ export default function Home() {
       return;
     }
 
+    if (user.globalRole === 'client_pending') {
+      router.push("/pending-approval");
+      return;
+    }
+
     if (!user.implementationId) {
       setLoading(false);
       return;
@@ -45,7 +53,6 @@ export default function Home() {
 
     const db = getFirestore();
     
-    // Para Masters, mostramos progresso da equipe apenas como informativo
     const membersQuery = query(
       collection(db, "implementationMembers"),
       where("implementationId", "==", user.implementationId)
@@ -71,26 +78,35 @@ export default function Home() {
       return () => unsubP();
     });
 
-    return () => {
-      unsubMembers();
-    };
+    return () => unsubMembers();
   }, [user, authLoading, router]);
 
-  if (authLoading || loading || !isLoaded) return (
+  if (authLoading || loading || !isLoaded || memberLoading) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
       <div className="flex flex-col items-center gap-4">
         <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-slate-500 font-medium text-lg animate-pulse">Sincronizando sua jornada individual...</p>
+        <p className="text-slate-500 font-medium text-lg animate-pulse">Sincronizando jornada individual...</p>
       </div>
     </div>
   );
+
+  if (user?.globalRole === 'client_participant' && effectiveAreas.length === 0) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+        <div className="max-w-md w-full text-center space-y-4">
+          <AlertCircle className="w-16 h-16 text-orange-500 mx-auto" />
+          <h1 className="text-2xl font-bold">Acesso não configurado</h1>
+          <p className="text-slate-500">Seu usuário ainda não possui áreas de acesso liberadas nesta implantação. Por favor, entre em contato com o responsável da sua empresa.</p>
+          <Button onClick={() => router.push('/login')} variant="outline">Sair da conta</Button>
+        </div>
+      </div>
+    );
+  }
 
   // Filtra fases que ainda não estão completas (Individual)
   const nextPhase = journeyPhases.find(p => 
     progress.phaseStatus[p.id] !== 'Completed'
   ) || journeyPhases[0];
-
-  const userAreas = (user as any)?.areas || ['todos'];
 
   return (
     <AuthGuard allowedRoles={['client_master', 'client_participant']}>
@@ -129,7 +145,7 @@ export default function Home() {
                 </h2>
                 <h3 className="text-3xl font-bold text-slate-900 mb-2">{nextPhase.title}</h3>
                 <p className="text-slate-500 text-sm max-w-xl">
-                  {nextPhase.description} Sua jornada avança conforme suas responsabilidades e áreas de atuação.
+                  Avanço baseado nas suas responsabilidades: <span className="font-bold text-primary capitalize">{effectiveAreas.join(', ')}</span>.
                 </p>
               </div>
               <Button asChild size="lg" className="bg-primary hover:bg-primary/90 text-white font-bold px-12 h-16 rounded-2xl shadow-xl shadow-primary/20 relative z-10">
@@ -145,7 +161,7 @@ export default function Home() {
                   uploadedEvidence: progress.uploadedEvidence,
                   status: progress.phaseStatus[nextPhase.id] || 'InProgress'
                 }}
-                userAreas={userAreas}
+                userAreas={effectiveAreas}
                 isClientMaster={user?.globalRole === 'client_master'}
                 members={members}
                 memberProgress={memberProgress}
@@ -164,27 +180,19 @@ export default function Home() {
             ))}
           </div>
 
-          <div className="md:hidden fixed bottom-6 right-6 flex flex-col gap-3">
-            {user?.globalRole === 'client_master' && (
-              <Button size="icon" className="w-14 h-14 rounded-full shadow-2xl bg-secondary text-primary" asChild>
-                <Link href="/app/participants"><UserPlus className="w-6 h-6" /></Link>
-              </Button>
-            )}
-          </div>
-
           <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-12 border-t pt-16">
             <div className="flex gap-5">
               <div className="bg-white p-4 rounded-2xl shadow-md h-fit border-none"><Info className="text-primary w-7 h-7" /></div>
               <div>
                 <h4 className="font-bold text-slate-900 mb-2 text-lg">Jornada Individual</h4>
-                <p className="text-sm text-slate-500 leading-relaxed">Você avança conforme seu próprio ritmo, sem depender do progresso de outros colegas.</p>
+                <p className="text-sm text-slate-500 leading-relaxed">Você avança conforme seu próprio ritmo e áreas atribuídas.</p>
               </div>
             </div>
             <div className="flex gap-5">
               <div className="bg-white p-4 rounded-2xl shadow-md h-fit border-none"><Trophy className="text-primary w-7 h-7" /></div>
               <div>
-                <h4 className="font-bold text-slate-900 mb-2 text-lg">Independência</h4>
-                <p className="text-sm text-slate-500 leading-relaxed">Cada participante libera seus próprios encontros e checkpoints.</p>
+                <h4 className="font-bold text-slate-900 mb-2 text-lg">Foco Operacional</h4>
+                <p className="text-sm text-slate-500 leading-relaxed">Cada participante libera seus próprios checkpoints e encontros.</p>
               </div>
             </div>
             <div className="flex gap-5">

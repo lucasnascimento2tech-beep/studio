@@ -10,9 +10,10 @@ import {
   onSnapshot, 
   addDoc, 
   serverTimestamp, 
-  deleteDoc, 
+  updateDoc, 
   doc, 
-  getDoc 
+  getDoc,
+  getDocs
 } from "firebase/firestore";
 import { useUser } from "@/firebase";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -23,8 +24,19 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { UserPlus, Copy, Check, Users, ShieldCheck, Mail, Trash2, Loader2 } from "lucide-react";
+import { UserPlus, Copy, Check, Users, ShieldCheck, Mail, Trash2, Loader2, AlertTriangle } from "lucide-react";
 import { AuthGuard } from "@/components/auth/AuthGuard";
+import { 
+  AlertDialog, 
+  AlertDialogAction, 
+  AlertDialogCancel, 
+  AlertDialogContent, 
+  AlertDialogDescription, 
+  AlertDialogFooter, 
+  AlertDialogHeader, 
+  AlertDialogTitle, 
+  AlertDialogTrigger 
+} from "@/components/ui/alert-dialog";
 
 export default function ParticipantsPage() {
   const { user } = useUser();
@@ -69,7 +81,7 @@ export default function ParticipantsPage() {
 
   const handleCreateInvite = async () => {
     if (!newName || !newEmail || selectedAreas.length === 0) {
-      toast({ title: "Erro", description: "Preencha todos os campos.", variant: "destructive" });
+      toast({ title: "Erro", description: "Preencha todos os campos e selecione ao menos uma área.", variant: "destructive" });
       return;
     }
 
@@ -78,7 +90,7 @@ export default function ParticipantsPage() {
     
     try {
       // 1. Create Invite Document
-      await addDoc(collection(db, "invites"), {
+      const inviteRef = await addDoc(collection(db, "invites"), {
         token,
         implementationId: user?.implementationId,
         companyId: user?.companyId,
@@ -102,12 +114,13 @@ export default function ParticipantsPage() {
         role: "participant",
         areas: selectedAreas,
         inviteStatus: "pending",
+        inviteId: inviteRef.id,
         inviteToken: token, 
         active: true,
         createdAt: serverTimestamp()
       });
 
-      toast({ title: "Convite Criado" });
+      toast({ title: "Convite Criado", description: "Copie o link e envie para o participante." });
       setNewName("");
       setNewEmail("");
       setSelectedAreas([]);
@@ -126,16 +139,30 @@ export default function ParticipantsPage() {
     toast({ title: "Link Copiado" });
   };
 
-  const removeMember = async (id: string) => {
+  const deactivateMember = async (member: any) => {
     try {
-      await deleteDoc(doc(db, "implementationMembers", id));
-      toast({ title: "Removido" });
+      // Se for pendente, cancela o convite também
+      if (member.inviteStatus === 'pending' && member.inviteId) {
+        await updateDoc(doc(db, "invites", member.inviteId), {
+          status: "canceled",
+          updatedAt: serverTimestamp()
+        });
+      }
+
+      await updateDoc(doc(db, "implementationMembers", member.id), {
+        active: false,
+        updatedAt: serverTimestamp()
+      });
+
+      toast({ title: "Participante desativado" });
     } catch (e) {
-      toast({ variant: "destructive", title: "Erro", description: "Não foi possível remover." });
+      toast({ variant: "destructive", title: "Erro", description: "Não foi possível desativar." });
     }
   };
 
   if (loading) return <div className="p-20 text-center"><Loader2 className="animate-spin mx-auto" /></div>;
+
+  const activeMembers = members.filter(m => m.active);
 
   return (
     <AuthGuard allowedRoles={['client_master', 'admin_2tech']}>
@@ -143,9 +170,9 @@ export default function ParticipantsPage() {
         <div className="flex justify-between items-center">
           <div>
             <h1 className="text-3xl font-headline font-bold text-slate-900 flex items-center gap-3">
-              <Users className="w-8 h-8 text-primary" /> Participantes
+              <Users className="w-8 h-8 text-primary" /> Equipe da Empresa
             </h1>
-            <p className="text-slate-500">Gerencie a equipe da sua empresa na jornada.</p>
+            <p className="text-slate-500">Gerencie quem participa da jornada e quais áreas podem acessar.</p>
           </div>
 
           <Dialog>
@@ -160,12 +187,12 @@ export default function ParticipantsPage() {
                   <Input placeholder="Nome Completo" value={newName} onChange={e => setNewName(e.target.value)} />
                 </div>
                 <div className="space-y-2">
-                  <Label>E-mail</Label>
+                  <Label>E-mail Corporativo</Label>
                   <Input placeholder="email@empresa.com" value={newEmail} onChange={e => setNewEmail(e.target.value)} />
                 </div>
                 <div className="space-y-2">
-                  <Label>Áreas de Acesso</Label>
-                  <div className="grid grid-cols-2 gap-2">
+                  <Label>Áreas de Acesso Liberadas</Label>
+                  <div className="grid grid-cols-2 gap-2 p-3 bg-slate-50 rounded-lg border">
                     {['cadastros', 'operacional', 'financeiro', 'relatorios', 'gestao'].map(area => (
                       <div key={area} className="flex items-center space-x-2">
                         <Checkbox 
@@ -176,10 +203,11 @@ export default function ParticipantsPage() {
                             else setSelectedAreas(selectedAreas.filter(a => a !== area));
                           }}
                         />
-                        <Label htmlFor={`new-${area}`} className="capitalize text-xs">{area}</Label>
+                        <Label htmlFor={`new-${area}`} className="capitalize text-xs cursor-pointer">{area}</Label>
                       </div>
                     ))}
                   </div>
+                  <p className="text-[10px] text-slate-400 italic mt-1">O participante verá apenas módulos das áreas selecionadas.</p>
                 </div>
               </div>
               <DialogFooter>
@@ -192,44 +220,68 @@ export default function ParticipantsPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {members.map(member => (
-            <Card key={member.id} className="border-none shadow-md">
-              <CardHeader className="pb-2">
-                <div className="flex justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">
-                      {member.name.substring(0,2).toUpperCase()}
+          {activeMembers.length === 0 ? (
+            <div className="col-span-full py-20 text-center bg-white rounded-2xl border-dashed border-2">
+              <Users className="w-12 h-12 text-slate-200 mx-auto mb-4" />
+              <p className="text-slate-500">Nenhum participante ativo. Convide sua equipe!</p>
+            </div>
+          ) : (
+            activeMembers.map(member => (
+              <Card key={member.id} className="border-none shadow-md hover:shadow-lg transition-all">
+                <CardHeader className="pb-2">
+                  <div className="flex justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">
+                        {member.name.substring(0,2).toUpperCase()}
+                      </div>
+                      <div>
+                        <CardTitle className="text-sm">{member.name}</CardTitle>
+                        <p className="text-[10px] text-slate-400">{member.email}</p>
+                      </div>
                     </div>
-                    <div>
-                      <CardTitle className="text-sm">{member.name}</CardTitle>
-                      <p className="text-[10px] text-slate-400">{member.email}</p>
-                    </div>
+                    
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-300 hover:text-red-500">
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Remover Participante?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Iso irá desativar o acesso de <strong>{member.name}</strong> à jornada. Esta ação não pode ser desfeita.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                          <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={() => deactivateMember(member)}>Remover</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-300 hover:text-red-500" onClick={() => removeMember(member.id)}>
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex flex-wrap gap-1">
-                  {member.areas.map((a: string) => (
-                    <Badge key={a} variant="secondary" className="text-[9px]">{a}</Badge>
-                  ))}
-                </div>
-                <Badge variant={member.inviteStatus === 'accepted' ? 'default' : 'outline'} className="w-full justify-center">
-                  {member.inviteStatus === 'accepted' ? 'Ativo' : 'Pendente'}
-                </Badge>
-              </CardContent>
-              {member.inviteStatus === 'pending' && (
-                <div className="p-4 bg-slate-50 border-t">
-                   <Button variant="outline" size="sm" className="w-full" onClick={() => copyInviteLink(member.inviteToken)}>
-                     {copiedToken === member.inviteToken ? <Check className="w-4 h-4 mr-2" /> : <Copy className="w-4 h-4 mr-2" />}
-                     Copiar Link
-                   </Button>
-                </div>
-              )}
-            </Card>
-          ))}
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex flex-wrap gap-1 min-h-[24px]">
+                    {member.areas?.map((a: string) => (
+                      <Badge key={a} variant="secondary" className="text-[9px] bg-blue-50 text-blue-700">{a}</Badge>
+                    ))}
+                  </div>
+                  <Badge variant={member.inviteStatus === 'accepted' ? 'default' : 'outline'} className="w-full justify-center text-[10px] h-6">
+                    {member.inviteStatus === 'accepted' ? 'Ativo na Jornada' : 'Aguardando Ativação'}
+                  </Badge>
+                </CardContent>
+                {member.inviteStatus === 'pending' && (
+                  <div className="p-4 bg-slate-50 border-t rounded-b-xl">
+                     <Button variant="outline" size="sm" className="w-full text-xs font-bold" onClick={() => copyInviteLink(member.inviteToken)}>
+                       {copiedToken === member.inviteToken ? <Check className="w-3 h-3 mr-2" /> : <Copy className="w-3 h-3 mr-2" />}
+                       Copiar Link de Convite
+                     </Button>
+                  </div>
+                )}
+              </Card>
+            ))
+          )}
         </div>
       </div>
     </AuthGuard>
