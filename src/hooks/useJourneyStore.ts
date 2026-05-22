@@ -26,11 +26,11 @@ export function useJourneyStore() {
     quizScores: {},
     meetingStatus: {},
     phaseStatus: {},
-    implantadorNotes: {}
+    implantadorNotes: {},
+    validationAnswers: {}
   });
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Helpers para IDs padronizados
   const getModuleProgressId = (moduleId: string) => 
     `${user?.implementationId}_${user?.uid}_${moduleId}`;
   const getPhaseProgressId = (phaseId: string) => 
@@ -49,7 +49,6 @@ export function useJourneyStore() {
     const db = getFirestore();
     const { uid, implementationId, companyId, globalRole } = user;
 
-    // Inicialização da Fase Inicial (Fase 0)
     const initFirstPhase = async () => {
       if (globalRole === 'admin_2tech' || globalRole === 'implantador' || globalRole === 'client_pending') return;
       
@@ -74,7 +73,6 @@ export function useJourneyStore() {
     };
     initFirstPhase();
 
-    // 1. Escuta progresso de módulos INDIVIDUAL
     const moduleQuery = query(
       collection(db, "moduleProgress"),
       where("implementationId", "==", implementationId),
@@ -84,11 +82,15 @@ export function useJourneyStore() {
     const unsubscribeModules = onSnapshot(moduleQuery, (snapshot) => {
       const completedModules: string[] = [];
       const uploadedEvidence: Record<string, any> = {};
+      const validationAnswers: Record<string, string> = {};
 
       snapshot.docs.forEach(d => {
         const data = d.data();
         if (data.status === 'completed') {
           completedModules.push(data.moduleId);
+        }
+        if (data.validationAnswer) {
+          validationAnswers[data.moduleId] = data.validationAnswer;
         }
         if (data.evidenceStatus) {
           uploadedEvidence[data.moduleId] = { 
@@ -99,7 +101,6 @@ export function useJourneyStore() {
         }
       });
 
-      // 2. Escuta progresso de fases INDIVIDUAL
       const phaseQuery = query(
         collection(db, "phaseProgress"),
         where("implementationId", "==", implementationId),
@@ -114,7 +115,6 @@ export function useJourneyStore() {
           phaseStatus[data.phaseId] = data.status;
         });
 
-        // 3. Escuta Encontros/Meetings INDIVIDUAL
         const meetingsQuery = query(
           collection(db, "meetings"),
           where("implementationId", "==", implementationId),
@@ -140,6 +140,7 @@ export function useJourneyStore() {
             uploadedEvidence,
             phaseStatus,
             meetingStatus,
+            validationAnswers,
             isLoaded: true
           }));
           setIsLoaded(true);
@@ -166,7 +167,6 @@ export function useJourneyStore() {
       const nextPhaseRef = doc(db, "phaseProgress", getPhaseProgressId(nextPhase.id));
       const nextPhaseSnap = await getDoc(nextPhaseRef);
       
-      // Só desbloqueia se a fase ainda não tiver um progresso mais avançado
       if (!nextPhaseSnap.exists() || nextPhaseSnap.data().status === 'Locked') {
         await setDoc(nextPhaseRef, {
           uid: user.uid,
@@ -187,12 +187,10 @@ export function useJourneyStore() {
     const phase = journeyPhases.find(p => p.id === phaseId);
     if (!phase) return;
 
-    // Módulos obrigatórios acessíveis
     const requiredModules = phase.modules.filter(m => 
       m.isRequired && (effectiveAreas.includes(m.area) || effectiveAreas.includes('todos'))
     );
 
-    // Busca progresso atual do Firestore para garantir precisão
     const q = query(
       collection(db, "moduleProgress"),
       where("uid", "==", user.uid),
@@ -209,14 +207,12 @@ export function useJourneyStore() {
     const currentPhaseDoc = await getDoc(phaseRef);
     const currentStatus = currentPhaseDoc.exists() ? currentPhaseDoc.data().status : 'InProgress';
 
-    // Cálculo de percentual
     const totalCount = requiredModules.length;
     const doneCount = doneIds.length;
     const percent = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 100;
 
     let newStatus = currentStatus;
 
-    // Se concluiu módulos, mas ainda está em InProgress/Locked, move para WaitingCheckpoint
     if (isDone && (currentStatus === 'InProgress' || currentStatus === 'NotStarted' || currentStatus === 'Locked')) {
       newStatus = "WaitingCheckpoint";
     } else if (!isDone && (currentStatus === 'InProgress' || currentStatus === 'NotStarted')) {
@@ -236,7 +232,7 @@ export function useJourneyStore() {
     }, { merge: true });
   };
 
-  const completeModule = async (moduleId: string, phaseId: string, effectiveAreas: AreaType[]) => {
+  const completeModule = async (moduleId: string, phaseId: string, effectiveAreas: AreaType[], validationAnswer: string) => {
     if (!user?.uid || !user?.implementationId) return;
 
     const db = getFirestore();
@@ -249,6 +245,8 @@ export function useJourneyStore() {
       phaseId,
       moduleId,
       status: "completed",
+      validationAnswer,
+      validationAnsweredAt: serverTimestamp(),
       completedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     }, { merge: true });
@@ -290,7 +288,8 @@ export function useJourneyStore() {
       score,
       passed,
       answers,
-      submittedAt: serverTimestamp()
+      submittedAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
     }, { merge: true });
 
     if (passed) {

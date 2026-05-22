@@ -107,9 +107,10 @@ export interface AccessRequest {
 
 export interface ProgressState {
   completedModules: string[];
-  uploadedEvidence: Record<string, { name: string; date?: string; status?: string }>;
+  uploadedEvidence: Record<string, { name: string; date?: string; status?: string; implantadorComment?: string }>;
   quizScores: Record<string, number>;
-  meetingStatus: Record<string, string>;
+  meetingStatus: Record<string, any>;
   phaseStatus: Record<string, PhaseStatus>;
   implantadorNotes: Record<string, string>;
+  validationAnswers: Record<string, string>;
 }

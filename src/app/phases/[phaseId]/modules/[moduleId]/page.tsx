@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, CheckCircle2, PlayCircle, FileText, Info, AlertTriangle, Upload, Check, ClipboardList, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -31,18 +31,23 @@ export default function ModuleDetailPage() {
   const [valAnswer, setValAnswer] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const phase = journeyPhases.find(p => p.id === phaseId);
+  const module = phase?.modules.find(m => m.id === moduleId);
+
+  useEffect(() => {
+    if (isLoaded && module && progress.validationAnswers[module.id]) {
+      setValAnswer(progress.validationAnswers[module.id]);
+    }
+  }, [isLoaded, module?.id, progress.validationAnswers]);
+
   if (!isLoaded || memberLoading) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
       <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
     </div>
   );
 
-  const phase = journeyPhases.find(p => p.id === phaseId);
-  const module = phase?.modules.find(m => m.id === moduleId);
-
   if (!phase || !module) return <div className="p-20 text-center">Módulo não encontrado.</div>;
 
-  // Proteção de acesso por área
   if (!canAccessModule(user?.globalRole as any, effectiveAreas, module)) {
     return <AccessDeniedCard />;
   }
@@ -51,30 +56,29 @@ export default function ModuleDetailPage() {
   const evidence = progress.uploadedEvidence[module.id];
 
   const handleComplete = async () => {
-    setIsSubmitting(true);
-    
+    const trimmedAnswer = valAnswer.trim();
+
     if (module.requiresEvidence && !evidence) {
       toast({
         title: "Evidência Necessária",
         description: "Por favor, anexe a evidência solicitada antes de concluir.",
         variant: "destructive"
       });
-      setIsSubmitting(false);
       return;
     }
 
-    if (valAnswer.trim().length < 5 && !isCompleted) {
+    if (trimmedAnswer.length < 5 && !isCompleted) {
       toast({
         title: "Resposta de Validação",
         description: "Por favor, responda a pergunta de validação com pelo menos 5 caracteres.",
         variant: "destructive"
       });
-      setIsSubmitting(false);
       return;
     }
 
+    setIsSubmitting(true);
     try {
-      await completeModule(module.id, phase.id as string, effectiveAreas);
+      await completeModule(module.id, phase.id as string, effectiveAreas, trimmedAnswer);
       toast({
         title: "Módulo Concluído!",
         description: "Seu progresso individual foi salvo com sucesso.",
