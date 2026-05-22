@@ -20,17 +20,18 @@ export function useJourneyStore() {
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
-    if (!user?.implementationId) {
-      setIsLoaded(true);
+    if (!user?.uid || !user?.implementationId) {
+      if (!user) setIsLoaded(true);
       return;
     }
 
     const db = getFirestore();
     
-    // Listen to module progress
+    // Listen to module progress (Individual)
     const moduleQuery = query(
       collection(db, "moduleProgress"),
-      where("implementationId", "==", user.implementationId)
+      where("implementationId", "==", user.implementationId),
+      where("uid", "==", user.uid)
     );
 
     const unsubscribeModules = onSnapshot(moduleQuery, (snapshot) => {
@@ -39,7 +40,7 @@ export function useJourneyStore() {
 
       snapshot.docs.forEach(d => {
         const data = d.data();
-        if (data.uid === user.uid && data.status === 'completed') {
+        if (data.status === 'completed') {
           completedModules.push(data.moduleId);
         }
         if (data.evidenceStatus === 'submitted' || data.evidenceStatus === 'approved') {
@@ -50,27 +51,53 @@ export function useJourneyStore() {
         }
       });
 
-      setProgress(prev => ({
-        ...prev,
-        completedModules,
-        uploadedEvidence
-      }));
-      setIsLoaded(true);
-    });
+      // Listen to Individual Phase Progress
+      const phaseQuery = query(
+        collection(db, "phaseProgress"),
+        where("implementationId", "==", user.implementationId),
+        where("uid", "==", user.uid)
+      );
 
-    // Listen to implementation status for phases
-    const implRef = doc(db, "implementations", user.implementationId);
-    const unsubscribeImpl = onSnapshot(implRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        // Here we could map actual phase status if stored in a collection
-        // For MVP, we'll keep a basic mapping
-      }
+      const unsubscribePhases = onSnapshot(phaseQuery, (phaseSnap) => {
+        const phaseStatus: Record<string, PhaseStatus> = { 'fase-0': 'InProgress' };
+        
+        phaseSnap.docs.forEach(d => {
+          const data = d.data();
+          phaseStatus[data.phaseId] = data.status;
+        });
+
+        // Listen to Meetings (Individual)
+        const meetingsQuery = query(
+          collection(db, "meetings"),
+          where("implementationId", "==", user.implementationId),
+          where("uid", "==", user.uid)
+        );
+
+        const unsubscribeMeetings = onSnapshot(meetingsQuery, (meetSnap) => {
+          const meetingStatus: Record<string, string> = {};
+          meetSnap.docs.forEach(d => {
+            const data = d.data();
+            meetingStatus[data.phaseId] = data.status;
+          });
+
+          setProgress(prev => ({
+            ...prev,
+            completedModules,
+            uploadedEvidence,
+            phaseStatus,
+            meetingStatus
+          }));
+          setIsLoaded(true);
+        });
+
+        return () => unsubscribeMeetings();
+      });
+
+      return () => unsubscribePhases();
     });
 
     return () => {
       unsubscribeModules();
-      unsubscribeImpl();
     };
   }, [user]);
 
@@ -97,11 +124,16 @@ export function useJourneyStore() {
     const db = getFirestore();
     const progressId = `${user.uid}_${moduleId}`;
     
-    await updateDoc(doc(db, "moduleProgress", progressId), {
+    await setDoc(doc(db, "moduleProgress", progressId), {
+      uid: user.uid,
+      implementationId: user.implementationId,
+      companyId: user.companyId,
+      phaseId,
+      moduleId,
       fileName,
       evidenceStatus: "submitted",
       updatedAt: serverTimestamp(),
-    });
+    }, { merge: true });
   };
 
   const saveQuizScore = async (phaseId: string, score: number) => {
@@ -111,26 +143,50 @@ export function useJourneyStore() {
     await setDoc(doc(db, "quizSubmissions", `${user.uid}_${phaseId}`), {
       uid: user.uid,
       implementationId: user.implementationId,
+      companyId: user.companyId,
       phaseId,
       score,
       passed: score >= 70,
       submittedAt: serverTimestamp()
     });
+
+    // Update individual phase status after quiz
+    if (score >= 70) {
+      await setDoc(doc(db, "phaseProgress", `${user.uid}_${phaseId}`), {
+        uid: user.uid,
+        implementationId: user.implementationId,
+        companyId: user.companyId,
+        phaseId,
+        status: "ReadyToSchedule",
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    }
   };
 
-  const scheduleMeeting = async (phaseId: string, details: any) => {
-    if (!user?.implementationId) return;
+  const scheduleMeeting = async (phaseId: string, details?: any) => {
+    if (!user?.uid || !user?.implementationId) return;
     const db = getFirestore();
     
-    await setDoc(doc(db, "meetings", `${user.implementationId}_${phaseId}`), {
+    await setDoc(doc(db, "meetings", `${user.uid}_${phaseId}`), {
+      uid: user.uid,
       implementationId: user.implementationId,
       companyId: user.companyId,
       phaseId,
       status: "scheduled",
-      scheduledAt: details.date,
-      notes: details.notes,
-      createdAt: serverTimestamp()
+      scheduledAt: details?.date || serverTimestamp(),
+      notes: details?.notes || "",
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
     });
+
+    await setDoc(doc(db, "phaseProgress", `${user.uid}_${phaseId}`), {
+      uid: user.uid,
+      implementationId: user.implementationId,
+      companyId: user.companyId,
+      phaseId,
+      status: "Scheduled",
+      updatedAt: serverTimestamp()
+    }, { merge: true });
   };
 
   return {

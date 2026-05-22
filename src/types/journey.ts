@@ -43,7 +43,7 @@ export interface Phase {
   quiz: QuizQuestion[];
 }
 
-export type PhaseStatus = 'Locked' | 'NotStarted' | 'InProgress' | 'WaitingEvidence' | 'ReadyToSchedule' | 'Scheduled' | 'WaitingApproval' | 'Completed' | 'PendingAdjustments';
+export type PhaseStatus = 'Locked' | 'NotStarted' | 'InProgress' | 'WaitingCheckpoint' | 'ReadyToSchedule' | 'Scheduled' | 'WaitingApproval' | 'Completed' | 'PendingAdjustments';
 
 export type GlobalRole = 'admin_2tech' | 'implantador' | 'client_master' | 'client_participant' | 'client_pending';
 

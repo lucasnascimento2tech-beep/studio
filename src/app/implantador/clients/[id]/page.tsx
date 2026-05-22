@@ -14,11 +14,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { 
   ArrowLeft, FileText, 
-  ShieldCheck, ExternalLink
+  ShieldCheck, ExternalLink, Users, Clock, CheckCircle2
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { UserNav } from "@/components/layout/UserNav";
+import { journeyPhases } from "@/data/journeyData";
 
 export default function ClientDetailSpecialistPage() {
   const { id: implementationId } = useParams();
@@ -29,7 +30,7 @@ export default function ClientDetailSpecialistPage() {
 
   const [implementation, setImplementation] = useState<any>(null);
   const [members, setMembers] = useState<any[]>([]);
-  const [evidences, setEvidences] = useState<any[]>([]);
+  const [allModuleProgress, setAllModuleProgress] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [reviewNote, setReviewNote] = useState<Record<string, string>>({});
 
@@ -46,20 +47,16 @@ export default function ClientDetailSpecialistPage() {
       setMembers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    const qEvidences = query(
-      collection(db, "moduleProgress"), 
-      where("implementationId", "==", implementationId),
-      where("evidenceStatus", "in", ["submitted", "approved", "adjustment_requested"])
-    );
-    const unsubscribeEvidences = onSnapshot(qEvidences, (snap) => {
-      setEvidences(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    const qProg = query(collection(db, "moduleProgress"), where("implementationId", "==", implementationId));
+    const unsubscribeProg = onSnapshot(qProg, (snap) => {
+      setAllModuleProgress(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoading(false);
     });
 
     return () => {
       unsubscribeImpl();
       unsubscribeMembers();
-      unsubscribeEvidences();
+      unsubscribeProg();
     };
   }, [implementationId, db, router]);
 
@@ -88,6 +85,8 @@ export default function ClientDetailSpecialistPage() {
     </div>
   );
 
+  const pendingEvidences = allModuleProgress.filter(e => e.evidenceStatus === 'submitted');
+
   return (
     <AuthGuard allowedRoles={['implantador', 'admin_2tech']}>
       <div className="min-h-screen bg-slate-50 pb-20">
@@ -113,62 +112,97 @@ export default function ClientDetailSpecialistPage() {
               <div>
                 <h2 className="text-3xl font-headline font-bold text-slate-900">Empresa Cliente</h2>
                 <div className="flex flex-wrap gap-2 mt-2">
-                  <Badge className="bg-blue-600">Fase {implementation?.currentPhaseId?.split('-')[1] || '0'}</Badge>
+                  <Badge className="bg-blue-600">Fase Atual: {implementation?.currentPhaseId || 'Preparação'}</Badge>
                   <Badge variant="outline" className="border-primary text-primary font-bold">{implementation?.status?.replace('_', ' ')}</Badge>
                   <Badge variant="secondary" className="bg-slate-100 text-slate-500">{members.length} Participantes</Badge>
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border w-full md:w-auto">
-              <div className="text-right">
-                <p className="text-xs text-slate-400 uppercase font-bold">Progresso</p>
-                <p className="text-2xl font-bold text-primary">{implementation?.progressPercent || 0}%</p>
-              </div>
-              <div className="w-32 h-2 bg-slate-200 rounded-full overflow-hidden">
-                <div className="h-full bg-primary" style={{ width: `${implementation?.progressPercent || 0}%` }} />
-              </div>
-            </div>
           </header>
 
-          <Tabs defaultValue="evidences" className="space-y-6">
+          <Tabs defaultValue="team" className="space-y-6">
             <TabsList className="bg-white border p-1 h-14 rounded-2xl shadow-sm">
-              <TabsTrigger value="evidences" className="px-8 h-12 rounded-xl font-bold data-[state=active]:bg-primary data-[state=active]:text-white">
-                Evidências Pendentes ({evidences.filter(e => e.evidenceStatus === 'submitted').length})
-              </TabsTrigger>
               <TabsTrigger value="team" className="px-8 h-12 rounded-xl font-bold data-[state=active]:bg-primary data-[state=active]:text-white">
-                Equipe & Áreas
+                Equipe & Progresso Individual
+              </TabsTrigger>
+              <TabsTrigger value="evidences" className="px-8 h-12 rounded-xl font-bold data-[state=active]:bg-primary data-[state=active]:text-white">
+                Evidências Pendentes ({pendingEvidences.length})
               </TabsTrigger>
             </TabsList>
 
+            <TabsContent value="team">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {members.map(member => {
+                  const mProg = allModuleProgress.filter(p => p.uid === member.uid);
+                  const completedModulesCount = mProg.filter(p => p.status === 'completed').length;
+                  
+                  // Simple heuristic for percentage (total required in current phase)
+                  const currentPhase = journeyPhases.find(p => p.id === implementation?.currentPhaseId) || journeyPhases[0];
+                  const mAreas = member.areas || ['todos'];
+                  const reqInPhase = currentPhase.modules.filter(m => m.isRequired && (mAreas.includes(m.area) || mAreas.includes('todos'))).length;
+                  const doneInPhase = mProg.filter(p => p.phaseId === currentPhase.id && p.status === 'completed').length;
+                  const perc = reqInPhase > 0 ? Math.round((doneInPhase / reqInPhase) * 100) : 100;
+
+                  return (
+                    <Card key={member.id} className="border-none shadow-md overflow-hidden bg-white hover:shadow-lg transition-all">
+                      <CardHeader className="pb-2">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-500">
+                            {member.name.substring(0,2).toUpperCase()}
+                          </div>
+                          <div>
+                            <CardTitle className="text-sm font-bold">{member.name}</CardTitle>
+                            <p className="text-[10px] text-slate-400">{member.email}</p>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-400 font-bold uppercase">Progresso Fase</span>
+                          <span className="font-bold text-primary">{perc}%</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-primary" style={{ width: `${perc}%` }} />
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {mAreas.map(a => (
+                            <Badge key={a} variant="secondary" className="text-[9px] bg-slate-50 text-slate-500">{a}</Badge>
+                          ))}
+                        </div>
+                        <div className="pt-2 border-t flex justify-between items-center text-[10px]">
+                          <span className="text-slate-400">Total Concluídos: <strong>{completedModulesCount}</strong></span>
+                          {perc === 100 ? (
+                            <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-none px-2 py-0">Pronto</Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-slate-400 px-2 py-0">Ativo</Badge>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </TabsContent>
+
             <TabsContent value="evidences">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {evidences.length === 0 ? (
+                {pendingEvidences.length === 0 ? (
                   <Card className="col-span-full py-20 text-center border-dashed border-2">
                     <FileText className="w-12 h-12 text-slate-200 mx-auto mb-4" />
                     <p className="text-slate-500 font-medium">Nenhuma evidência aguardando revisão.</p>
                   </Card>
                 ) : (
-                  evidences.map(evidence => (
-                    <Card key={evidence.id} className={cn(
-                      "border-none shadow-md overflow-hidden bg-white",
-                      evidence.evidenceStatus === 'approved' ? "ring-2 ring-green-500/20" : ""
-                    )}>
+                  pendingEvidences.map(evidence => (
+                    <Card key={evidence.id} className="border-none shadow-md overflow-hidden bg-white">
                       <div className="p-6 space-y-4">
                         <div className="flex justify-between items-start">
                           <div>
                             <Badge variant="outline" className="mb-2 uppercase text-[10px] font-bold text-slate-400">
-                              Módulo: {evidence.moduleId}
+                              Módulo ID: {evidence.moduleId}
                             </Badge>
-                            <h4 className="font-bold text-slate-900">Enviado por: {members.find(m => m.uid === evidence.uid)?.name || 'Membro'}</h4>
+                            <h4 className="font-bold text-slate-900">De: {members.find(m => m.uid === evidence.uid)?.name || 'Membro'}</h4>
                           </div>
-                          <Badge variant={evidence.evidenceStatus === 'approved' ? 'default' : 'secondary'} className={evidence.evidenceStatus === 'approved' ? 'bg-green-600' : 'bg-orange-100 text-orange-700'}>
-                            {evidence.evidenceStatus === 'submitted' ? 'Aguardando Revisão' : evidence.evidenceStatus}
-                          </Badge>
-                        </div>
-
-                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                          <p className="text-xs font-bold text-slate-400 uppercase mb-2">Resposta de Validação:</p>
-                          <p className="text-sm text-slate-700 italic">"{evidence.answers?.validationText || 'Sem descrição'}"</p>
+                          <Badge variant="secondary" className="bg-orange-100 text-orange-700">Aguardando Revisão</Badge>
                         </div>
 
                         {evidence.fileName && (
@@ -183,91 +217,34 @@ export default function ClientDetailSpecialistPage() {
                           </div>
                         )}
 
-                        {evidence.evidenceStatus === 'submitted' && (
-                          <div className="space-y-4 pt-4 border-t">
-                            <Textarea 
-                              placeholder="Adicionar um comentário para o cliente..." 
-                              className="text-xs min-h-[80px]"
-                              value={reviewNote[evidence.id] || ""}
-                              onChange={(e) => setReviewNote({...reviewNote, [evidence.id]: e.target.value})}
-                            />
-                            <div className="grid grid-cols-2 gap-3">
-                              <Button 
-                                variant="outline" 
-                                className="text-red-600 border-red-200 hover:bg-red-50 font-bold"
-                                onClick={() => handleReviewEvidence(evidence.id, 'adjustment_requested')}
-                              >
-                                Solicitar Ajuste
-                              </Button>
-                              <Button 
-                                className="bg-green-600 hover:bg-green-700 text-white font-bold"
-                                onClick={() => handleReviewEvidence(evidence.id, 'approved')}
-                              >
-                                Aprovar Evidência
-                              </Button>
-                            </div>
+                        <div className="space-y-4 pt-4 border-t">
+                          <Textarea 
+                            placeholder="Adicionar um comentário para o cliente..." 
+                            className="text-xs min-h-[80px]"
+                            value={reviewNote[evidence.id] || ""}
+                            onChange={(e) => setReviewNote({...reviewNote, [evidence.id]: e.target.value})}
+                          />
+                          <div className="grid grid-cols-2 gap-3">
+                            <Button 
+                              variant="outline" 
+                              className="text-red-600 border-red-200 hover:bg-red-50 font-bold"
+                              onClick={() => handleReviewEvidence(evidence.id, 'adjustment_requested')}
+                            >
+                              Solicitar Ajuste
+                            </Button>
+                            <Button 
+                              className="bg-green-600 hover:bg-green-700 text-white font-bold"
+                              onClick={() => handleReviewEvidence(evidence.id, 'approved')}
+                            >
+                              Aprovar Evidência
+                            </Button>
                           </div>
-                        )}
+                        </div>
                       </div>
                     </Card>
                   ))
                 )}
               </div>
-            </TabsContent>
-
-            <TabsContent value="team">
-              <Card className="border-none shadow-md overflow-hidden bg-white">
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] font-bold">
-                        <tr>
-                          <th className="px-6 py-4 text-left">Participante</th>
-                          <th className="px-6 py-4 text-left">Áreas Liberadas</th>
-                          <th className="px-6 py-4 text-center">Obrigatoriedade</th>
-                          <th className="px-6 py-4 text-center">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {members.map(member => (
-                          <tr key={member.id} className="hover:bg-slate-50/50">
-                            <td className="px-6 py-4">
-                              <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600">
-                                  {member.name.substring(0,2).toUpperCase()}
-                                </div>
-                                <div>
-                                  <p className="font-bold text-slate-900">{member.name}</p>
-                                  <p className="text-xs text-slate-400">{member.email}</p>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="px-6 py-4">
-                              <div className="flex flex-wrap gap-1">
-                                {member.areas?.map((a: string) => (
-                                  <Badge key={a} variant="secondary" className="bg-blue-50 text-blue-700 text-[10px] capitalize">{a}</Badge>
-                                ))}
-                              </div>
-                            </td>
-                            <td className="px-6 py-4 text-center">
-                              {member.isRequiredParticipant ? (
-                                <Badge className="bg-orange-500">Estratégico</Badge>
-                              ) : (
-                                <span className="text-slate-300 text-xs">Padrão</span>
-                              )}
-                            </td>
-                            <td className="px-6 py-4 text-center">
-                              <Badge variant={member.inviteStatus === 'accepted' ? 'default' : 'outline'} className={member.inviteStatus === 'accepted' ? 'bg-green-600' : 'text-orange-500 border-orange-200'}>
-                                {member.inviteStatus === 'accepted' ? 'Ativo' : 'Pendente'}
-                              </Badge>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
             </TabsContent>
           </Tabs>
         </main>

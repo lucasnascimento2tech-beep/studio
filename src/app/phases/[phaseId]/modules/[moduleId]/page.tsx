@@ -7,12 +7,13 @@ import { useJourneyStore } from "@/hooks/useJourneyStore";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, CheckCircle2, PlayCircle, FileText, Info, AlertTriangle, Upload, Check } from "lucide-react";
+import { ArrowLeft, CheckCircle2, PlayCircle, FileText, Info, AlertTriangle, Upload, Check, ClipboardList } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useState } from "react";
 import Link from "next/link";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
 export default function ModuleDetailPage() {
   const { phaseId, moduleId } = useParams();
@@ -23,7 +24,11 @@ export default function ModuleDetailPage() {
   const [valAnswer, setValAnswer] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  if (!isLoaded) return null;
+  if (!isLoaded) return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+    </div>
+  );
 
   const phase = journeyPhases.find(p => p.id === phaseId);
   const module = phase?.modules.find(m => m.id === moduleId);
@@ -33,9 +38,9 @@ export default function ModuleDetailPage() {
   const isCompleted = progress.completedModules.includes(module.id);
   const evidence = progress.uploadedEvidence[module.id];
 
-  const handleComplete = () => {
+  const handleComplete = async () => {
     setIsSubmitting(true);
-    // Simulate some logic check
+    
     if (module.requiresEvidence && !evidence) {
       toast({
         title: "Evidência Necessária",
@@ -49,31 +54,39 @@ export default function ModuleDetailPage() {
     if (valAnswer.trim().length < 5 && !isCompleted) {
       toast({
         title: "Resposta de Validação",
-        description: "Por favor, responda a pergunta de validação.",
+        description: "Por favor, responda a pergunta de validação com pelo menos 5 caracteres.",
         variant: "destructive"
       });
       setIsSubmitting(false);
       return;
     }
 
-    completeModule(module.id, phase.id);
-    toast({
-      title: "Módulo Concluído!",
-      description: "Você avançou mais um passo na sua jornada.",
-    });
-    
-    setTimeout(() => {
+    try {
+      await completeModule(module.id, phase.id as string);
+      toast({
+        title: "Módulo Concluído!",
+        description: "Você avançou na sua jornada individual.",
+      });
+      
       router.push(`/phases/${phase.id}`);
-    }, 1000);
+    } catch (e) {
+      toast({ title: "Erro", description: "Não foi possível salvar seu progresso.", variant: "destructive" });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      uploadEvidence(module.id, e.target.files[0].name);
-      toast({
-        title: "Arquivo Enviado",
-        description: "Sua evidência foi registrada com sucesso.",
-      });
+      try {
+        await uploadEvidence(module.id, e.target.files[0].name, phase.id as string);
+        toast({
+          title: "Arquivo Registrado",
+          description: "Sua evidência foi enviada com sucesso.",
+        });
+      } catch (err) {
+        toast({ title: "Erro", description: "Falha ao registrar arquivo.", variant: "destructive" });
+      }
     }
   };
 
@@ -98,19 +111,16 @@ export default function ModuleDetailPage() {
 
       <main className="max-w-4xl mx-auto px-4 mt-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-8">
-          {/* Content Section */}
           <section className="bg-white p-8 rounded-xl border shadow-sm">
             <h2 className="text-lg font-bold text-primary mb-4 flex items-center gap-2">
               <Info className="w-5 h-5 text-secondary" /> Conteúdo do Módulo
             </h2>
             
-            {/* Mock Video Placeholder */}
             <div className="aspect-video bg-gray-900 rounded-lg mb-6 flex flex-col items-center justify-center text-white p-6 text-center group cursor-pointer relative overflow-hidden">
                <div className="absolute inset-0 bg-cover bg-center opacity-40" style={{ backgroundImage: `url('https://picsum.photos/seed/${module.id}/800/450')` }}></div>
                <div className="relative z-10 flex flex-col items-center">
                  <PlayCircle className="w-16 h-16 mb-4 group-hover:scale-110 transition-transform text-secondary" />
                  <p className="font-bold text-lg">Assistir Vídeo Treinamento</p>
-                 <p className="text-white/60 text-sm">Inserir link do vídeo aqui</p>
                </div>
             </div>
 
@@ -141,7 +151,6 @@ export default function ModuleDetailPage() {
             </div>
           </section>
 
-          {/* Practical Task */}
           <section className="bg-white p-8 rounded-xl border shadow-sm">
             <h2 className="text-lg font-bold text-primary mb-4 flex items-center gap-2">
               <ClipboardList className="w-5 h-5 text-secondary" /> Tarefa Prática
@@ -153,7 +162,6 @@ export default function ModuleDetailPage() {
         </div>
 
         <div className="space-y-6">
-          {/* Metadata Card */}
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-bold text-primary">Detalhes</CardTitle>
@@ -167,16 +175,9 @@ export default function ModuleDetailPage() {
                 <span className="text-muted-foreground">Tempo Estimado:</span>
                 <span className="font-bold text-primary">{module.estimatedTime}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Obrigatoriedade:</span>
-                <span className={cn("font-bold", module.isRequired ? "text-red-500" : "text-green-500")}>
-                  {module.isRequired ? "Sim" : "Não"}
-                </span>
-              </div>
             </CardContent>
           </Card>
 
-          {/* Completion Form */}
           <Card className={cn(isCompleted ? "border-green-200 bg-green-50/20" : "")}>
             <CardHeader>
               <CardTitle className="text-base font-bold text-primary">Sua Validação</CardTitle>
@@ -187,9 +188,9 @@ export default function ModuleDetailPage() {
                   <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                     Evidência Exigida
                   </Label>
-                  <p className="text-xs text-muted-foreground mb-2">{module.evidenceDescription}</p>
+                  <p className="text-[10px] text-muted-foreground mb-2">{module.evidenceDescription}</p>
                   {evidence ? (
-                    <div className="flex items-center gap-2 bg-white p-2 rounded border border-green-200 text-green-700 text-xs">
+                    <div className="flex items-center gap-2 bg-white p-2 rounded border border-green-200 text-green-700 text-[10px]">
                       <Check className="w-4 h-4" /> {evidence.name}
                     </div>
                   ) : (
@@ -199,9 +200,9 @@ export default function ModuleDetailPage() {
                         className="opacity-0 absolute inset-0 cursor-pointer" 
                         onChange={handleFileUpload}
                       />
-                      <Button variant="outline" className="w-full h-20 border-dashed border-2 flex flex-col gap-1">
-                        <Upload className="w-5 h-5 text-muted-foreground" />
-                        <span className="text-xs font-medium">Anexar Print/Arquivo</span>
+                      <Button variant="outline" className="w-full h-16 border-dashed border-2 flex flex-col gap-1">
+                        <Upload className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-[10px] font-medium">Anexar Print</span>
                       </Button>
                     </div>
                   )}
@@ -212,10 +213,10 @@ export default function ModuleDetailPage() {
                 <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                   Pergunta de Validação
                 </Label>
-                <p className="text-xs font-medium text-primary mb-2">{module.validationQuestion}</p>
+                <p className="text-[10px] font-medium text-primary mb-2">{module.validationQuestion}</p>
                 <textarea 
                   disabled={isCompleted}
-                  className="w-full text-sm p-3 rounded-md border min-h-[100px] bg-white resize-none focus:ring-2 focus:ring-primary/20 outline-none"
+                  className="w-full text-xs p-3 rounded-md border min-h-[80px] bg-white resize-none outline-none focus:ring-1 focus:ring-primary/20"
                   placeholder="Sua resposta aqui..."
                   value={valAnswer}
                   onChange={(e) => setValAnswer(e.target.value)}
@@ -224,12 +225,12 @@ export default function ModuleDetailPage() {
             </CardContent>
             <CardFooter>
               {isCompleted ? (
-                <div className="w-full flex items-center justify-center gap-2 text-green-700 font-bold bg-green-100 py-3 rounded-md">
-                  <CheckCircle2 className="w-5 h-5" /> Módulo Concluído
+                <div className="w-full flex items-center justify-center gap-2 text-green-700 font-bold bg-green-100 py-3 rounded-md text-sm">
+                  <CheckCircle2 className="w-4 h-4" /> Módulo Concluído
                 </div>
               ) : (
                 <Button 
-                  className="w-full bg-secondary text-primary font-bold hover:bg-secondary/90 h-12"
+                  className="w-full bg-secondary text-primary font-bold hover:bg-secondary/90 h-10"
                   onClick={handleComplete}
                   disabled={isSubmitting}
                 >
