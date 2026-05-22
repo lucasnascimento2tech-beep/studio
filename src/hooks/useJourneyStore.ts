@@ -14,7 +14,8 @@ import {
   where, 
   onSnapshot, 
   getDocs, 
-  getDoc 
+  getDoc,
+  updateDoc
 } from 'firebase/firestore';
 import { useUser } from '@/firebase';
 
@@ -31,6 +32,7 @@ export function useJourneyStore() {
   });
   const [isLoaded, setIsLoaded] = useState(false);
 
+  // Helper functions for IDs
   const getModuleProgressId = (moduleId: string) => 
     `${user?.implementationId}_${user?.uid}_${moduleId}`;
   const getPhaseProgressId = (phaseId: string) => 
@@ -40,11 +42,12 @@ export function useJourneyStore() {
   const getQuizSubmissionId = (phaseId: string) => 
     `${user?.implementationId}_${user?.uid}_${phaseId}`;
 
-  // ID Generics for implementer/admin use
   const getGenericPhaseProgressId = (implId: string, uid: string, phaseId: string) => 
     `${implId}_${uid}_${phaseId}`;
   const getGenericMeetingId = (implId: string, uid: string, phaseId: string) => 
     `${implId}_${uid}_${phaseId}`;
+  const getGenericModuleProgressId = (implId: string, uid: string, modId: string) => 
+    `${implId}_${uid}_${modId}`;
 
   useEffect(() => {
     if (!user?.uid || !user?.implementationId) {
@@ -70,8 +73,6 @@ export function useJourneyStore() {
           phaseId: firstPhaseId,
           status: "InProgress",
           progressPercent: 0,
-          completedModulesCount: 0,
-          totalModulesCount: 0,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         }, { merge: true });
@@ -102,7 +103,7 @@ export function useJourneyStore() {
           uploadedEvidence[data.moduleId] = { 
             name: data.fileName || 'Arquivo',
             status: data.evidenceStatus,
-            implantadorComment: data.implantadorComment || ""
+            implantadorComment: data.implantadorComment || data.reviewComment || ""
           };
         }
       });
@@ -115,7 +116,6 @@ export function useJourneyStore() {
 
       const unsubscribePhases = onSnapshot(phaseQuery, (phaseSnap) => {
         const phaseStatus: Record<string, PhaseStatus> = {};
-        
         phaseSnap.docs.forEach(d => {
           const data = d.data();
           phaseStatus[data.phaseId] = data.status;
@@ -136,7 +136,7 @@ export function useJourneyStore() {
               scheduledDate: data.scheduledDate,
               scheduledTime: data.scheduledTime,
               notes: data.notes,
-              implantadorComment: data.implantadorComment
+              implantadorComment: data.implantadorComment || data.reviewComment || ""
             };
           });
 
@@ -158,9 +158,7 @@ export function useJourneyStore() {
       return () => unsubscribePhases();
     });
 
-    return () => {
-      unsubscribeModules();
-    };
+    return () => unsubscribeModules();
   }, [user?.uid, user?.implementationId]);
 
   const unlockNextPhaseForUser = async (targetUid: string, targetImplId: string, targetCompId: string, currentPhaseId: string) => {
@@ -190,20 +188,16 @@ export function useJourneyStore() {
     }
   };
 
-  const unlockNextPhase = async (currentPhaseId: string) => {
-    if (!user?.uid || !user?.implementationId) return;
-    await unlockNextPhaseForUser(user.uid, user.implementationId, user.companyId || "", currentPhaseId);
-  };
-
   const recalculatePhaseProgress = async (phaseId: string, effectiveAreas: AreaType[]) => {
     if (!user?.uid || !user?.implementationId) return;
     const db = getFirestore();
     const phase = journeyPhases.find(p => p.id === phaseId);
     if (!phase) return;
 
-    const requiredModules = phase.modules.filter(m => 
-      m.isRequired && (effectiveAreas.includes(m.area) || effectiveAreas.includes('todos'))
+    const accessibleModules = phase.modules.filter(m => 
+      effectiveAreas.includes(m.area) || effectiveAreas.includes('todos')
     );
+    const requiredModules = accessibleModules.filter(m => m.isRequired);
 
     const q = query(
       collection(db, "moduleProgress"),
@@ -229,11 +223,7 @@ export function useJourneyStore() {
     const nonReversibleStatuses = ['ReadyToSchedule', 'Scheduled', 'WaitingApproval', 'Completed', 'PendingAdjustments'];
 
     if (!nonReversibleStatuses.includes(currentStatus)) {
-      if (isDone) {
-        newStatus = "WaitingCheckpoint";
-      } else {
-        newStatus = "InProgress";
-      }
+      newStatus = isDone ? "WaitingCheckpoint" : "InProgress";
     }
 
     await setDoc(phaseRef, {
@@ -251,7 +241,6 @@ export function useJourneyStore() {
 
   const completeModule = async (moduleId: string, phaseId: string, effectiveAreas: AreaType[], validationAnswer: string) => {
     if (!user?.uid || !user?.implementationId) return;
-
     const db = getFirestore();
     const progressRef = doc(db, "moduleProgress", getModuleProgressId(moduleId));
     
@@ -273,7 +262,6 @@ export function useJourneyStore() {
 
   const uploadEvidence = async (moduleId: string, fileName: string, phaseId: string) => {
     if (!user?.uid || !user?.implementationId) return;
-
     const db = getFirestore();
     const progressRef = doc(db, "moduleProgress", getModuleProgressId(moduleId));
     
@@ -294,7 +282,6 @@ export function useJourneyStore() {
     if (!user?.uid || !user?.implementationId) return;
     const db = getFirestore();
     const phase = journeyPhases.find(p => p.id === phaseId);
-    
     const passed = score >= 70;
 
     await setDoc(doc(db, "quizSubmissions", getQuizSubmissionId(phaseId)), {
@@ -318,7 +305,18 @@ export function useJourneyStore() {
       }, { merge: true });
 
       if (!phase?.hasMeeting) {
-        await unlockNextPhase(phaseId);
+        const currentIndex = journeyPhases.findIndex(p => p.id === phaseId);
+        const nextPhase = journeyPhases[currentIndex + 1];
+        if (nextPhase) {
+           await setDoc(doc(db, "phaseProgress", getPhaseProgressId(nextPhase.id)), {
+             uid: user.uid,
+             implementationId: user.implementationId,
+             companyId: user.companyId,
+             phaseId: nextPhase.id,
+             status: "InProgress",
+             updatedAt: serverTimestamp()
+           }, { merge: true });
+        }
       }
     }
   };
@@ -327,8 +325,8 @@ export function useJourneyStore() {
     if (!user?.uid || !user?.implementationId) return;
     const db = getFirestore();
     const phase = journeyPhases.find(p => p.id === phaseId);
-    
     const meetingRef = doc(db, "meetings", getMeetingId(phaseId));
+
     await setDoc(meetingRef, {
       uid: user.uid,
       implementationId: user.implementationId,
@@ -353,8 +351,8 @@ export function useJourneyStore() {
   const markMeetingReadyForApproval = async (phaseId: string) => {
     if (!user?.uid || !user?.implementationId) return;
     const db = getFirestore();
-    
     const meetingRef = doc(db, "meetings", getMeetingId(phaseId));
+
     await setDoc(meetingRef, {
       status: "WaitingApproval",
       readyForApprovalAt: serverTimestamp(),
@@ -368,10 +366,29 @@ export function useJourneyStore() {
   };
 
   // Funções para Implantador/Admin
+  const reviewEvidence = async (params: { 
+    uid: string, 
+    implId: string, 
+    moduleId: string, 
+    status: 'approved' | 'adjustment_requested' | 'rejected', 
+    comment: string 
+  }) => {
+    const db = getFirestore();
+    const progressRef = doc(db, "moduleProgress", getGenericModuleProgressId(params.implId, params.uid, params.moduleId));
+    
+    await setDoc(progressRef, {
+      evidenceStatus: params.status,
+      reviewedByUid: user?.uid,
+      reviewedAt: serverTimestamp(),
+      reviewComment: params.comment,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  };
+
   const approveMeeting = async (params: { uid: string, implId: string, compId: string, phaseId: string, comment?: string }) => {
     const db = getFirestore();
-    
     const meetingRef = doc(db, "meetings", getGenericMeetingId(params.implId, params.uid, params.phaseId));
+    
     await setDoc(meetingRef, {
       status: "Completed",
       reviewedByUid: user?.uid,
@@ -393,8 +410,8 @@ export function useJourneyStore() {
   const requestMeetingAdjustments = async (params: { uid: string, implId: string, compId: string, phaseId: string, comment: string }) => {
     if (!params.comment) throw new Error("Comentário de ajuste é obrigatório.");
     const db = getFirestore();
-    
     const meetingRef = doc(db, "meetings", getGenericMeetingId(params.implId, params.uid, params.phaseId));
+    
     await setDoc(meetingRef, {
       status: "PendingAdjustments",
       reviewedByUid: user?.uid,
@@ -418,6 +435,7 @@ export function useJourneyStore() {
     saveQuizScore,
     scheduleMeeting,
     markMeetingReadyForApproval,
+    reviewEvidence,
     approveMeeting,
     requestMeetingAdjustments,
     recalculatePhaseProgress
