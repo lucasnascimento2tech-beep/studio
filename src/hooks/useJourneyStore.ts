@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import { ProgressState, PhaseStatus, AreaType } from '@/types/journey';
+import { ProgressState, PhaseStatus, AreaType, ModuleReviewStatus } from '@/types/journey';
 import { journeyPhases } from '@/data/journeyData';
 import { 
   getFirestore, 
@@ -14,7 +14,8 @@ import {
   where, 
   onSnapshot, 
   getDocs, 
-  getDoc
+  getDoc,
+  updateDoc
 } from 'firebase/firestore';
 import { useUser } from '@/firebase';
 import { getRequiredAccessibleModules, isPhaseReadyForCheckpoint } from '@/utils/journeyProgress';
@@ -106,16 +107,17 @@ export function useJourneyStore() {
         const data = d.data();
         if (data.status === 'completed') completedModules.push(data.moduleId);
         if (data.validationAnswer) validationAnswers[data.moduleId] = data.validationAnswer;
-        if (data.evidenceStatus) {
+        if (data.evidenceStatus || data.moduleReviewStatus) {
           uploadedEvidence[data.moduleId] = { 
             name: data.fileName || 'Arquivo',
             status: data.evidenceStatus,
+            reviewStatus: data.moduleReviewStatus,
             implantadorComment: data.reviewComment || ""
           };
         }
       });
       setProgress(prev => ({ ...prev, completedModules, uploadedEvidence, validationAnswers }));
-      setLoadedSections(p => ({ ...prev, modules: true }));
+      setLoadedSections(prev => ({ ...prev, modules: true }));
     });
 
     // Listener Phases
@@ -130,7 +132,7 @@ export function useJourneyStore() {
         phaseStatus[data.phaseId] = data.status;
       });
       setProgress(prev => ({ ...prev, phaseStatus }));
-      setLoadedSections(p => ({ ...prev, phases: true }));
+      setLoadedSections(prev => ({ ...prev, phases: true }));
     });
 
     // Listener Meetings
@@ -151,7 +153,7 @@ export function useJourneyStore() {
         };
       });
       setProgress(prev => ({ ...prev, meetingStatus }));
-      setLoadedSections(p => ({ ...prev, meetings: true }));
+      setLoadedSections(prev => ({ ...prev, meetings: true }));
     });
 
     return () => { unsubModules(); unsubPhases(); unsubMeetings(); };
@@ -174,7 +176,7 @@ export function useJourneyStore() {
 
       if (readyForCheckpoint && ['InProgress', 'NotStarted', 'Locked'].includes(currentStatus)) {
         await setDoc(doc(db, "phaseProgress", getPhaseProgressId(phase.id)), {
-          status: "WaitingCheckpoint",
+          status: "WaitingModuleApproval",
           updatedAt: serverTimestamp()
         }, { merge: true });
       }
@@ -229,7 +231,7 @@ export function useJourneyStore() {
     const nonReversible = ['ReadyToSchedule', 'Scheduled', 'WaitingApproval', 'Completed', 'PendingAdjustments'];
 
     if (!nonReversible.includes(currentStatus)) {
-      newStatus = isDone ? "WaitingCheckpoint" : "InProgress";
+      newStatus = isDone ? "WaitingModuleApproval" : "InProgress";
     }
 
     await setDoc(phaseRef, {
@@ -258,12 +260,12 @@ export function useJourneyStore() {
       moduleId,
       status: "completed",
       validationAnswer,
+      moduleReviewStatus: "pending_review",
       validationAnsweredAt: serverTimestamp(),
       completedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     }, { merge: true });
 
-    // Adiciona ao estado local imediatamente para o recalculatePhaseProgress usar o valor atualizado
     setProgress(prev => ({
       ...prev,
       completedModules: [...prev.completedModules, moduleId]
@@ -285,9 +287,148 @@ export function useJourneyStore() {
       moduleId,
       fileName,
       evidenceStatus: "submitted",
+      moduleReviewStatus: "pending_review",
       evidenceSubmittedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     }, { merge: true });
+  };
+
+  const approveModuleReview = async (params: { 
+    uid: string, 
+    implId: string, 
+    compId: string, 
+    phaseId: string, 
+    moduleId: string, 
+    comment?: string 
+  }) => {
+    const db = getFirestore();
+    const progressId = getGenericModuleProgressId(params.implId, params.uid, params.moduleId);
+    const progressRef = doc(db, "moduleProgress", progressId);
+    
+    await updateDoc(progressRef, {
+      moduleReviewStatus: "approved",
+      evidenceStatus: "approved",
+      reviewedByUid: user?.uid,
+      reviewedAt: serverTimestamp(),
+      reviewComment: params.comment || "Módulo aprovado.",
+      updatedAt: serverTimestamp()
+    });
+
+    await recalculatePhaseAfterModuleReview({
+      uid: params.uid,
+      implId: params.implId,
+      compId: params.compId,
+      phaseId: params.phaseId
+    });
+  };
+
+  const requestModuleAdjustments = async (params: { 
+    uid: string, 
+    implId: string, 
+    compId: string, 
+    phaseId: string, 
+    moduleId: string, 
+    comment: string 
+  }) => {
+    const db = getFirestore();
+    const progressId = getGenericModuleProgressId(params.implId, params.uid, params.moduleId);
+    const progressRef = doc(db, "moduleProgress", progressId);
+    
+    await updateDoc(progressRef, {
+      moduleReviewStatus: "adjustment_requested",
+      evidenceStatus: "adjustment_requested",
+      reviewedByUid: user?.uid,
+      reviewedAt: serverTimestamp(),
+      reviewComment: params.comment,
+      updatedAt: serverTimestamp()
+    });
+
+    const phaseRef = doc(db, "phaseProgress", getGenericPhaseProgressId(params.implId, params.uid, params.phaseId));
+    await updateDoc(phaseRef, {
+      status: "PendingAdjustments",
+      updatedAt: serverTimestamp()
+    });
+  };
+
+  const rejectModuleReview = async (params: { 
+    uid: string, 
+    implId: string, 
+    compId: string, 
+    phaseId: string, 
+    moduleId: string, 
+    comment: string 
+  }) => {
+    const db = getFirestore();
+    const progressId = getGenericModuleProgressId(params.implId, params.uid, params.moduleId);
+    const progressRef = doc(db, "moduleProgress", progressId);
+    
+    await updateDoc(progressRef, {
+      moduleReviewStatus: "rejected",
+      evidenceStatus: "rejected",
+      reviewedByUid: user?.uid,
+      reviewedAt: serverTimestamp(),
+      reviewComment: params.comment,
+      updatedAt: serverTimestamp()
+    });
+
+    const phaseRef = doc(db, "phaseProgress", getGenericPhaseProgressId(params.implId, params.uid, params.phaseId));
+    await updateDoc(phaseRef, {
+      status: "PendingAdjustments",
+      updatedAt: serverTimestamp()
+    });
+  };
+
+  const recalculatePhaseAfterModuleReview = async (params: { uid: string, implId: string, compId: string, phaseId: string }) => {
+    const db = getFirestore();
+    const phase = journeyPhases.find(p => p.id === params.phaseId);
+    if (!phase) return;
+
+    // Obter áreas do usuário (Master vs Participant)
+    let areas: AreaType[] = ["todos"];
+    const memberSnap = await getDocs(query(
+      collection(db, "implementationMembers"),
+      where("implementationId", "==", params.implId),
+      where("uid", "==", params.uid)
+    ));
+    
+    if (!memberSnap.empty) {
+      const mData = memberSnap.docs[0].data();
+      if (mData.role !== 'implementation_master') {
+        areas = mData.areas || [];
+      }
+    }
+
+    const requiredModules = getRequiredAccessibleModules(phase, areas, "client_participant");
+    const modSnap = await getDocs(query(
+      collection(db, "moduleProgress"),
+      where("implementationId", "==", params.implId),
+      where("uid", "==", params.uid),
+      where("phaseId", "==", params.phaseId)
+    ));
+
+    const progressDocs = modSnap.docs.map(d => d.data());
+    const allApproved = requiredModules.every(rm => 
+      progressDocs.find(p => p.moduleId === rm.id)?.moduleReviewStatus === 'approved'
+    );
+
+    if (allApproved) {
+      const phaseRef = doc(db, "phaseProgress", getGenericPhaseProgressId(params.implId, params.uid, params.phaseId));
+      if (phase.hasMeeting) {
+        await updateDoc(phaseRef, {
+          status: "ReadyToSchedule",
+          progressPercent: 100,
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        await updateDoc(phaseRef, {
+          status: "Completed",
+          progressPercent: 100,
+          completedAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+        await unlockNextPhaseForUser(params.uid, params.implId, params.compId, params.phaseId);
+      }
+    }
   };
 
   const saveQuizScore = async (phaseId: string, score: number, answers: any) => {
@@ -308,18 +449,7 @@ export function useJourneyStore() {
       updatedAt: serverTimestamp()
     }, { merge: true });
 
-    if (passed) {
-      const newStatus = phase?.hasMeeting ? "ReadyToSchedule" : "Completed";
-      await setDoc(doc(db, "phaseProgress", getPhaseProgressId(phaseId)), {
-        status: newStatus,
-        completedAt: !phase?.hasMeeting ? serverTimestamp() : null,
-        updatedAt: serverTimestamp()
-      }, { merge: true });
-
-      if (!phase?.hasMeeting) {
-        await unlockNextPhaseForUser(user.uid, user.implementationId, user.companyId || "", phaseId);
-      }
-    }
+    // O Quiz deixa de ser o gatilho principal, mas mantemos o registro histórico
   };
 
   const scheduleMeeting = async (phaseId: string, meetingData: { date: string, time: string, notes: string }) => {
@@ -362,25 +492,6 @@ export function useJourneyStore() {
 
     await setDoc(doc(db, "phaseProgress", getPhaseProgressId(phaseId)), {
       status: "WaitingApproval",
-      updatedAt: serverTimestamp()
-    }, { merge: true });
-  };
-
-  const reviewEvidence = async (params: { 
-    uid: string, 
-    implId: string, 
-    moduleId: string, 
-    status: 'approved' | 'adjustment_requested' | 'rejected', 
-    comment: string 
-  }) => {
-    const db = getFirestore();
-    const progressRef = doc(db, "moduleProgress", getGenericModuleProgressId(params.implId, params.uid, params.moduleId));
-    
-    await setDoc(progressRef, {
-      evidenceStatus: params.status,
-      reviewedByUid: user?.uid,
-      reviewedAt: serverTimestamp(),
-      reviewComment: params.comment,
       updatedAt: serverTimestamp()
     }, { merge: true });
   };
@@ -435,7 +546,9 @@ export function useJourneyStore() {
     saveQuizScore,
     scheduleMeeting,
     markMeetingReadyForApproval,
-    reviewEvidence,
+    approveModuleReview,
+    requestModuleAdjustments,
+    rejectModuleReview,
     approveMeeting,
     requestMeetingAdjustments,
     recalculatePhaseProgress,

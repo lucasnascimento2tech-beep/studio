@@ -9,7 +9,7 @@ import { PhaseCard } from "@/components/journey/PhaseCard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
-import { Settings, Info, Trophy, Rocket, UserPlus, AlertCircle, Calendar, ArrowRight, ClipboardList, Clock } from "lucide-react";
+import { Settings, Info, Trophy, Rocket, UserPlus, AlertCircle, Calendar, ArrowRight, ClipboardList, Clock, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { useRouter } from "next/navigation";
@@ -75,35 +75,35 @@ export default function Home() {
   const renderStatusInfoCard = () => {
     if (!nextPhase) return null;
 
-    // Caso 1: Validação Pendente (WaitingCheckpoint)
-    if (nextPhaseStatus === 'WaitingCheckpoint') {
+    // Caso: Aguardando Aprovação de Módulos (Antigo WaitingCheckpoint)
+    if (nextPhaseStatus === 'WaitingModuleApproval' || nextPhaseStatus === 'WaitingCheckpoint') {
       return (
         <Card className="border-2 border-amber-200 bg-amber-50 shadow-lg overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-500">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <div className="flex items-center gap-3">
               <div className="p-3 rounded-xl bg-white shadow-sm">
-                <ClipboardList className="w-6 h-6 text-amber-600" />
+                <Clock className="w-6 h-6 text-amber-600" />
               </div>
               <div>
-                <CardTitle className="text-lg font-bold text-amber-900">Validação da fase pendente</CardTitle>
-                <p className="text-[10px] text-amber-500 uppercase tracking-widest font-bold">Ação necessária para avançar</p>
+                <CardTitle className="text-lg font-bold text-amber-900">Aguardando aprovação do implantador</CardTitle>
+                <p className="text-[10px] text-amber-500 uppercase tracking-widest font-bold">Conteúdo técnico em análise</p>
               </div>
             </div>
-            <Badge className="bg-amber-100 text-amber-700 border-amber-200">Aguardando Validação</Badge>
+            <Badge className="bg-amber-100 text-amber-700 border-amber-200">Em Análise</Badge>
           </CardHeader>
           <CardContent className="pt-2">
-            <p className="text-sm text-amber-800 leading-relaxed">Você concluiu todos os módulos obrigatórios da <strong>{nextPhase.title}</strong>. Responda a validação de conhecimento para liberar o próximo passo da sua jornada.</p>
+            <p className="text-sm text-amber-800 leading-relaxed">Você concluiu os módulos desta etapa. Agora a equipe 2tech vai validar suas respostas e evidências para liberar o próximo passo da sua jornada.</p>
           </CardContent>
           <CardFooter className="bg-white/50 border-t p-4 flex justify-end">
-            <Button asChild size="sm" className="bg-amber-600 hover:bg-amber-700 text-white font-bold">
-              <Link href={`/phases/${nextPhase.id}/checkpoint`}>Responder Validação Agora <ArrowRight className="w-4 h-4 ml-2" /></Link>
+            <Button asChild variant="outline" size="sm" className="font-bold border-amber-200 text-amber-700 hover:bg-amber-100">
+              <Link href={`/phases/${nextPhase.id}`}>Acompanhar Detalhes <ArrowRight className="w-4 h-4 ml-2" /></Link>
             </Button>
           </CardFooter>
         </Card>
       );
     }
 
-    // Caso 2: Encontro
+    // Caso: Encontro
     if (nextPhase.hasMeeting && ['ReadyToSchedule', 'Scheduled', 'WaitingApproval', 'PendingAdjustments'].includes(nextPhaseStatus)) {
       const config = {
         ReadyToSchedule: {
@@ -229,9 +229,9 @@ export default function Home() {
                     Avanço baseado nas suas responsabilidades: <span className="font-bold text-primary capitalize">{effectiveAreas.join(', ')}</span>.
                   </p>
                 </div>
-                {nextPhaseStatus === 'WaitingCheckpoint' ? (
+                {nextPhaseStatus === 'WaitingModuleApproval' || nextPhaseStatus === 'WaitingCheckpoint' ? (
                   <Button asChild size="lg" className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-12 h-16 rounded-2xl shadow-xl shadow-amber-100 relative z-10">
-                    <Link href={`/phases/${nextPhase.id}/checkpoint`}>Responder Validação</Link>
+                    <Link href={`/phases/${nextPhase.id}`}>Verificar Aprovação</Link>
                   </Button>
                 ) : (
                   <Button asChild size="lg" className="bg-primary hover:bg-primary/90 text-white font-bold px-12 h-16 rounded-2xl shadow-xl shadow-primary/20 relative z-10">
@@ -265,15 +265,15 @@ export default function Home() {
             <div className="flex gap-5">
               <div className="bg-white p-4 rounded-2xl shadow-md h-fit border-none"><Trophy className="text-primary w-7 h-7" /></div>
               <div>
-                <h4 className="font-bold text-slate-900 mb-2 text-lg">Foco Operacional</h4>
-                <p className="text-sm text-slate-500 leading-relaxed">Cada participante libera seus próprios checkpoints e encontros.</p>
+                <h4 className="font-bold text-slate-900 mb-2 text-lg">Validação Modular</h4>
+                <p className="text-sm text-slate-500 leading-relaxed">Cada módulo concluído é validado individualmente pelo especialista 2tech.</p>
               </div>
             </div>
             <div className="flex gap-5">
               <div className="bg-white p-4 rounded-2xl shadow-md h-fit border-none"><Settings className="text-primary w-7 h-7" /></div>
               <div>
                 <h4 className="font-bold text-slate-900 mb-2 text-lg">Apoio Especializado</h4>
-                <p className="text-sm text-slate-500 leading-relaxed">Nossos implantadores validam suas evidências individualmente.</p>
+                <p className="text-sm text-slate-500 leading-relaxed">Nossos implantadores revisam suas evidências e orientam os ajustes.</p>
               </div>
             </div>
           </div>

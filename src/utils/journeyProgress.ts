@@ -46,6 +46,24 @@ export function isPhaseReadyForCheckpoint(
 }
 
 /**
+ * Verifica se todos os módulos obrigatórios acessíveis já foram APROVADOS pelo implantador.
+ */
+export function isPhaseReadyForNextStepAfterReview(
+  phase: Phase,
+  effectiveAreas: AreaType[],
+  userRole: GlobalRole,
+  moduleProgress: any[]
+): boolean {
+  const required = getRequiredAccessibleModules(phase, effectiveAreas, userRole);
+  if (required.length === 0) return true;
+
+  return required.every(rm => {
+    const prog = moduleProgress.find(p => p.moduleId === rm.id);
+    return prog?.moduleReviewStatus === 'approved';
+  });
+}
+
+/**
  * Calcula o progresso global de módulos para o usuário.
  */
 export function calculateModuleProgressForUser(

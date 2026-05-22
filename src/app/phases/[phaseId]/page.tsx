@@ -50,6 +50,7 @@ export default function PhaseDetailPage() {
   );
 
   const completedCount = individualModules.filter(m => progress.completedModules.includes(m.id)).length;
+  const approvedCount = individualModules.filter(m => progress.uploadedEvidence[m.id]?.reviewStatus === 'approved').length;
   const percentage = individualModules.length > 0 ? Math.round((completedCount / individualModules.length) * 100) : 100;
 
   const isLocked = status === 'Locked';
@@ -70,7 +71,7 @@ export default function PhaseDetailPage() {
                     "text-xs border-blue-100",
                     status === 'Completed' ? "bg-green-50 text-green-700" : "bg-blue-50 text-blue-700"
                   )}>
-                    {status}
+                    {status === 'WaitingModuleApproval' ? 'Em Análise' : status}
                   </Badge>
                 </div>
                 <h1 className="text-3xl font-headline font-bold text-primary">{phase.title}</h1>
@@ -100,24 +101,38 @@ export default function PhaseDetailPage() {
             </Card>
           ) : (
             <div className="space-y-10">
-              {status === 'WaitingCheckpoint' && (
+              {(status === 'WaitingModuleApproval' || status === 'WaitingCheckpoint') && (
                 <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                   <Card className="border-2 border-amber-400 bg-amber-50 shadow-lg shadow-amber-100/50">
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2 text-amber-900 font-headline">
-                        <CheckCircle2 className="w-6 h-6 text-amber-600" /> Validação liberada
+                        <Clock className="w-6 h-6 text-amber-600" /> Aguardando aprovação do implantador
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <p className="text-sm text-amber-800">
-                        Você concluiu todos os módulos obrigatórios desta fase. Agora responda a validação para liberar a próxima etapa da sua jornada.
+                        Você já concluiu os módulos obrigatórios desta fase. O implantador vai validar suas respostas e evidências. Assim que tudo for aprovado, o próximo passo será liberado automaticamente.
                       </p>
-                      <Button asChild size="lg" className="w-full bg-amber-600 text-white font-bold hover:bg-amber-700 shadow-xl shadow-amber-200">
-                        <Link href={`/phases/${phase.id}/checkpoint`}>Realizar validação agora</Link>
-                      </Button>
                     </CardContent>
                   </Card>
                 </section>
+              )}
+
+              {status === 'PendingAdjustments' && (
+                 <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                   <Card className="border-2 border-red-400 bg-red-50 shadow-lg">
+                     <CardHeader>
+                       <CardTitle className="flex items-center gap-2 text-red-900 font-headline">
+                         <AlertTriangle className="w-6 h-6 text-red-600" /> Ajustes solicitados
+                       </CardTitle>
+                     </CardHeader>
+                     <CardContent className="space-y-4">
+                       <p className="text-sm text-red-800">
+                         O implantador solicitou ajustes em um ou mais módulos desta fase. Revise os itens marcados abaixo, corrija as informações e envie novamente para análise.
+                       </p>
+                     </CardContent>
+                   </Card>
+                 </section>
               )}
 
               <section>
@@ -132,16 +147,22 @@ export default function PhaseDetailPage() {
                   ) : (
                     individualModules.map((module) => {
                       const isModuleCompleted = progress.completedModules.includes(module.id);
+                      const reviewStatus = progress.uploadedEvidence[module.id]?.reviewStatus;
+                      
                       return (
                         <Card key={module.id} className={cn(
                           "transition-all border-l-4",
-                          isModuleCompleted ? "border-l-green-500 bg-green-50/20" : "border-l-primary/20 hover:border-l-primary"
+                          reviewStatus === 'approved' ? "border-l-green-500 bg-green-50/20" :
+                          reviewStatus === 'adjustment_requested' ? "border-l-red-500 bg-red-50/20" :
+                          isModuleCompleted ? "border-l-amber-500 bg-amber-50/20" : "border-l-primary/20 hover:border-l-primary"
                         )}>
                           <div className="p-4 flex items-center justify-between gap-4">
                             <div className="flex items-center gap-4">
                               <div className={cn(
                                 "p-3 rounded-lg",
-                                isModuleCompleted ? "bg-green-100 text-green-600" : "bg-blue-50 text-primary"
+                                reviewStatus === 'approved' ? "bg-green-100 text-green-600" :
+                                reviewStatus === 'adjustment_requested' ? "bg-red-100 text-red-600" :
+                                isModuleCompleted ? "bg-amber-100 text-amber-600" : "bg-blue-50 text-primary"
                               )}>
                                 {module.type === 'Material' && <PlayCircle className="w-6 h-6" />}
                                 {module.type === 'Task' && <FileText className="w-6 h-6" />}
@@ -151,17 +172,28 @@ export default function PhaseDetailPage() {
                               <div>
                                 <div className="flex items-center gap-2 mb-0.5">
                                   <h3 className="font-bold text-primary">{module.title}</h3>
-                                  {isModuleCompleted && <CheckCircle2 className="w-4 h-4 text-green-500" />}
+                                  {reviewStatus === 'approved' ? (
+                                    <CheckCircle2 className="w-4 h-4 text-green-500" />
+                                  ) : reviewStatus === 'adjustment_requested' ? (
+                                    <AlertTriangle className="w-4 h-4 text-red-500" />
+                                  ) : isModuleCompleted && (
+                                    <Clock className="w-4 h-4 text-amber-500" />
+                                  )}
                                 </div>
                                 <div className="flex items-center gap-3 text-xs text-muted-foreground">
                                   <Badge variant="secondary" className="bg-gray-100 hover:bg-gray-100 px-1.5 py-0 text-[10px]">{module.type}</Badge>
                                   <span className="flex items-center gap-1"><Info className="w-3 h-3" /> {module.estimatedTime}</span>
+                                  {reviewStatus === 'approved' && <span className="text-green-600 font-bold uppercase text-[9px]">Validado</span>}
+                                  {reviewStatus === 'adjustment_requested' && <span className="text-red-600 font-bold uppercase text-[9px]">Ajuste Necessário</span>}
+                                  {isModuleCompleted && !reviewStatus && <span className="text-amber-600 font-bold uppercase text-[9px]">Em Análise</span>}
                                 </div>
                               </div>
                             </div>
                             <Button asChild variant={isModuleCompleted ? "outline" : "default"} size="sm" className="font-bold">
                               <Link href={`/phases/${phase.id}/modules/${module.id}`}>
-                                {isModuleCompleted ? "Revisar" : "Iniciar"}
+                                {reviewStatus === 'approved' ? "Revisar" : 
+                                 reviewStatus === 'adjustment_requested' ? "Corrigir" :
+                                 isModuleCompleted ? "Acompanhar" : "Iniciar"}
                               </Link>
                             </Button>
                           </div>

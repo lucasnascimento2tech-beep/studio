@@ -3,6 +3,8 @@ export type AreaType = 'cadastros' | 'operacional' | 'financeiro' | 'relatorios'
 
 export type ModuleType = 'Material' | 'Checkpoint' | 'Task' | 'Evidence' | 'Pre-Meeting';
 
+export type ModuleReviewStatus = 'pending_review' | 'approved' | 'adjustment_requested' | 'rejected';
+
 export interface QuizQuestion {
   id: string;
   question: string;
@@ -43,7 +45,7 @@ export interface Phase {
   quiz: QuizQuestion[];
 }
 
-export type PhaseStatus = 'Locked' | 'NotStarted' | 'InProgress' | 'WaitingCheckpoint' | 'ReadyToSchedule' | 'Scheduled' | 'WaitingApproval' | 'Completed' | 'PendingAdjustments';
+export type PhaseStatus = 'Locked' | 'NotStarted' | 'InProgress' | 'WaitingModuleApproval' | 'ReadyToSchedule' | 'Scheduled' | 'WaitingApproval' | 'Completed' | 'PendingAdjustments' | 'WaitingCheckpoint';
 
 export type GlobalRole = 'admin_2tech' | 'implantador' | 'client_master' | 'client_participant' | 'client_pending';
 
@@ -107,7 +109,7 @@ export interface AccessRequest {
 
 export interface ProgressState {
   completedModules: string[];
-  uploadedEvidence: Record<string, { name: string; date?: string; status?: string; implantadorComment?: string }>;
+  uploadedEvidence: Record<string, { name: string; date?: string; status?: string; reviewStatus?: ModuleReviewStatus; implantadorComment?: string }>;
   quizScores: Record<string, number>;
   meetingStatus: Record<string, any>;
   phaseStatus: Record<string, PhaseStatus>;

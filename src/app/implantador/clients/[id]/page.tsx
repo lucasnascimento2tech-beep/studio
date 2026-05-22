@@ -30,7 +30,6 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useJourneyStore } from "@/hooks/useJourneyStore";
 import { canAccessModule } from "@/utils/permissions";
-import { isPhaseReadyForCheckpoint } from "@/utils/journeyProgress";
 
 export default function ClientDetailPage() {
   const { id: implementationId } = useParams();
@@ -38,7 +37,7 @@ export default function ClientDetailPage() {
   const db = getFirestore();
   const { toast } = useToast();
   const router = useRouter();
-  const { reviewEvidence, approveMeeting, requestMeetingAdjustments } = useJourneyStore();
+  const { approveModuleReview, requestModuleAdjustments, rejectModuleReview, approveMeeting, requestMeetingAdjustments } = useJourneyStore();
 
   // Estados de Autorização
   const [accessStatus, setAccessStatus] = useState<"loading" | "allowed" | "denied">("loading");
@@ -50,7 +49,6 @@ export default function ClientDetailPage() {
   const [allModuleProgress, setAllModuleProgress] = useState<any[]>([]);
   const [allPhaseProgress, setAllPhaseProgress] = useState<any[]>([]);
   const [allMeetings, setAllMeetings] = useState<any[]>([]);
-  const [allSubmissions, setAllSubmissions] = useState<any[]>([]);
   const [allNotes, setAllNotes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -58,7 +56,8 @@ export default function ClientDetailPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [reviewComment, setReviewComment] = useState("");
   const [selectedItem, setSelectedItem] = useState<any>(null);
-  const [activeModal, setActiveModal] = useState<'evidence' | 'meeting' | 'participant' | 'none'>( 'none');
+  const [activeModal, setActiveModal] = useState<'module_review' | 'meeting' | 'none'>( 'none');
+  const [moduleActionType, setModuleActionType] = useState<'approve' | 'adjust' | 'reject' | null>(null);
   const [newNote, setNewNote] = useState("");
   const [noteVisibility, setNoteVisibility] = useState<'internal' | 'client_visible'>('internal');
   const [expandedMember, setExpandedMember] = useState<string | null>(null);
@@ -72,7 +71,6 @@ export default function ClientDetailPage() {
         const data = snap.data();
         setImplementation({ id: snap.id, ...data });
 
-        // Validação de acesso
         const isAdmin = currentUser?.globalRole === 'admin_2tech';
         const isAssigned = data.assignedImplantadorUid === currentUser?.uid;
 
@@ -116,10 +114,6 @@ export default function ClientDetailPage() {
       setAllMeetings(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    const unsubSubmissions = onSnapshot(query(collection(db, "quizSubmissions"), where("implementationId", "==", implementationId)), (snap) => {
-      setAllSubmissions(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
-
     const unsubNotes = onSnapshot(query(collection(db, "implantadorNotes"), where("implementationId", "==", implementationId)), (snap) => {
       const notes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       notes.sort((a: any, b: any) => {
@@ -132,60 +126,36 @@ export default function ClientDetailPage() {
     });
 
     return () => {
-      unsubMembers(); unsubModules(); unsubPhases(); unsubMeetings(); unsubSubmissions(); unsubNotes();
+      unsubMembers(); unsubModules(); unsubPhases(); unsubMeetings(); unsubNotes();
     };
   }, [accessStatus, implementationId, db]);
 
-  // Cálculos Consolidados
-  const implementationSummary = useMemo(() => {
-    const activeMembers = members.filter(m => m.active && m.uid);
-    let totalExpected = 0;
-    let totalCompleted = 0;
-
-    activeMembers.forEach(m => {
-      const userAreas = m.areas || [];
-      journeyPhases.forEach(phase => {
-        phase.modules.forEach(mod => {
-          if (canAccessModule(m.clientAccessType === 'master' ? 'client_master' : 'client_participant', userAreas, mod)) {
-            totalExpected++;
-            const isDone = allModuleProgress.some(p => p.uid === m.uid && p.moduleId === mod.id && p.status === 'completed');
-            if (isDone) totalCompleted++;
-          }
-        });
-      });
-    });
-
-    const pendingCheckpoints = allPhaseProgress.filter(p => p.status === 'WaitingCheckpoint').length;
-    const pendingAdjustments = allPhaseProgress.filter(p => p.status === 'PendingAdjustments').length;
-
-    return {
-      totalExpected,
-      totalCompleted,
-      percent: totalExpected > 0 ? Math.round((totalCompleted / totalExpected) * 100) : 0,
-      pendingCheckpoints,
-      pendingAdjustments
-    };
-  }, [members, allModuleProgress, allPhaseProgress]);
-
   const canOperate = accessStatus === 'allowed';
 
-  // Ações de Evidência
-  const handleReviewEvidence = async (status: 'approved' | 'adjustment_requested' | 'rejected') => {
-    if (!selectedItem || (status !== 'approved' && !reviewComment)) {
+  // Ações de Revisão de Módulo
+  const handleModuleReview = async () => {
+    if (!selectedItem || !moduleActionType) return;
+    if (moduleActionType !== 'approve' && !reviewComment) {
       toast({ title: "Feedback Obrigatório", description: "Informe o motivo do ajuste ou rejeição.", variant: "destructive" });
       return;
     }
 
     setIsProcessing(true);
     try {
-      await reviewEvidence({
+      const params = {
         uid: selectedItem.uid,
         implId: implementationId as string,
+        compId: implementation.companyId,
+        phaseId: selectedItem.phaseId,
         moduleId: selectedItem.moduleId,
-        status,
         comment: reviewComment
-      });
-      toast({ title: "Revisão concluída", description: `Evidência marcada como ${status}` });
+      };
+
+      if (moduleActionType === 'approve') await approveModuleReview(params);
+      else if (moduleActionType === 'adjust') await requestModuleAdjustments(params);
+      else await rejectModuleReview(params);
+
+      toast({ title: "Revisão concluída", description: "O status do módulo foi atualizado." });
       setActiveModal('none');
       setReviewComment("");
     } catch (e) {
@@ -195,7 +165,6 @@ export default function ClientDetailPage() {
     }
   };
 
-  // Ações de Encontro
   const handleMeetingAction = async (action: 'approve' | 'adjust' | 'realized') => {
     if (!selectedItem || (action === 'adjust' && !reviewComment)) {
       toast({ title: "Feedback Obrigatório", description: "Explique o ajuste necessário.", variant: "destructive" });
@@ -238,80 +207,10 @@ export default function ClientDetailPage() {
     }
   };
 
-  // Ações de Participante
-  const toggleParticipant = async (member: any) => {
-    if (member.role === 'implementation_master') {
-      toast({ title: "Acesso Negado", description: "Não é possível desativar o Cliente Master.", variant: "destructive" });
-      return;
-    }
-
-    setIsProcessing(true);
-    try {
-      await updateDoc(doc(db, "implementationMembers", member.id), {
-        active: !member.active,
-        updatedAt: serverTimestamp()
-      });
-      toast({ title: member.active ? "Participante Desativado" : "Participante Reativado" });
-    } catch (e) {
-      toast({ variant: "destructive", title: "Erro ao atualizar" });
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleAddNote = async () => {
-    if (!newNote.trim()) return;
-    setIsProcessing(true);
-    try {
-      await addDoc(collection(db, "implantadorNotes"), {
-        implementationId,
-        companyId: implementation?.companyId,
-        createdByUid: currentUser?.uid,
-        createdByName: currentUser?.name || "Especialista",
-        note: newNote,
-        visibility: noteVisibility,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
-      setNewNote("");
-      toast({ title: "Nota adicionada" });
-    } catch (e) {
-      toast({ variant: "destructive", title: "Erro ao salvar nota" });
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  if (accessStatus === "loading") return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50">
-      <div className="flex flex-col items-center gap-4">
-        <Clock className="w-12 h-12 text-primary animate-pulse" />
-        <p className="text-slate-500 font-medium">Verificando autorização...</p>
-      </div>
-    </div>
-  );
-
-  if (accessStatus === "denied") return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-      <Card className="max-w-md w-full text-center py-12 border-none shadow-xl">
-        <ShieldAlert className="w-16 h-16 text-red-500 mx-auto mb-4" />
-        <CardHeader>
-          <CardTitle>Acesso não permitido</CardTitle>
-        </CardHeader>
-        <CardContent className="text-slate-500">
-          Esta implantação não está vinculada ao seu usuário de implantador.
-        </CardContent>
-        <CardFooter className="flex justify-center">
-          <Button asChild variant="outline">
-            <Link href="/implantador"><ArrowLeft className="w-4 h-4 mr-2" /> Voltar para o painel</Link>
-          </Button>
-        </CardFooter>
-      </Card>
-    </div>
-  );
+  if (accessStatus === "loading") return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Clock className="w-12 h-12 text-primary animate-pulse" /></div>;
 
   const stats = {
-    pendingEvidence: allModuleProgress.filter(p => p.evidenceStatus === 'submitted').length,
+    pendingReview: allModuleProgress.filter(p => p.moduleReviewStatus === 'pending_review').length,
     pendingMeetings: allMeetings.filter(m => m.status === 'WaitingApproval').length,
     activeParticipants: members.filter(m => m.active).length
   };
@@ -349,18 +248,13 @@ export default function ClientDetailPage() {
             </div>
             
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 w-full lg:w-auto">
-              <Card className="bg-blue-50/50 border-blue-100 p-4 text-center">
-                <p className="text-[9px] font-bold text-blue-400 uppercase">Módulos Concluídos</p>
-                <p className="text-2xl font-bold text-blue-700">{implementationSummary.totalCompleted}</p>
-                <p className="text-[10px] text-blue-400 mt-1">{implementationSummary.percent}% da meta</p>
-              </Card>
               <Card className="bg-orange-50/50 border-orange-100 p-4 text-center">
-                <p className="text-[9px] font-bold text-orange-400 uppercase">Aguardando Avaliação</p>
-                <p className="text-2xl font-bold text-orange-700">{stats.pendingMeetings}</p>
+                <p className="text-[9px] font-bold text-orange-400 uppercase">Módulos p/ Validar</p>
+                <p className="text-2xl font-bold text-orange-700">{stats.pendingReview}</p>
               </Card>
-              <Card className="bg-yellow-50/50 border-yellow-100 p-4 text-center">
-                <p className="text-[9px] font-bold text-yellow-600 uppercase">Checkpoints Pendentes</p>
-                <p className="text-2xl font-bold text-yellow-700">{implementationSummary.pendingCheckpoints}</p>
+              <Card className="bg-blue-50/50 border-blue-100 p-4 text-center">
+                <p className="text-[9px] font-bold text-blue-400 uppercase">Encontros Pendentes</p>
+                <p className="text-2xl font-bold text-blue-700">{stats.pendingMeetings}</p>
               </Card>
               <Card className="bg-slate-50 border-slate-200 p-4 text-center">
                 <p className="text-[9px] font-bold text-slate-400 uppercase">Participantes</p>
@@ -369,227 +263,118 @@ export default function ClientDetailPage() {
             </div>
           </header>
 
-          <Tabs defaultValue="overview" className="space-y-6">
+          <Tabs defaultValue="progress" className="space-y-6">
             <TabsList className="bg-white border p-1 h-14 rounded-2xl shadow-sm overflow-x-auto justify-start max-w-full">
-              <TabsTrigger value="overview" className="px-6 h-12 rounded-xl font-bold data-[state=active]:bg-primary data-[state=active]:text-white">Visão Geral</TabsTrigger>
-              <TabsTrigger value="team" className="px-6 h-12 rounded-xl font-bold data-[state=active]:bg-primary data-[state=active]:text-white">Participantes</TabsTrigger>
               <TabsTrigger value="progress" className="px-6 h-12 rounded-xl font-bold data-[state=active]:bg-primary data-[state=active]:text-white flex items-center gap-2">
-                <BarChart3 className="w-4 h-4" /> Progresso
+                <BarChart3 className="w-4 h-4" /> Progresso e Validação
+                {stats.pendingReview > 0 && <Badge className="ml-2 bg-red-500 text-white">{stats.pendingReview}</Badge>}
               </TabsTrigger>
-              <TabsTrigger value="evidence" className="px-6 h-12 rounded-xl font-bold data-[state=active]:bg-primary data-[state=active]:text-white relative">
-                Evidências
-                {stats.pendingEvidence > 0 && <Badge className="absolute -top-1 -right-1 bg-red-500 text-white w-4 h-4 p-0 flex items-center justify-center rounded-full text-[8px]">{stats.pendingEvidence}</Badge>}
-              </TabsTrigger>
+              <TabsTrigger value="team" className="px-6 h-12 rounded-xl font-bold data-[state=active]:bg-primary data-[state=active]:text-white">Participantes</TabsTrigger>
               <TabsTrigger value="meetings" className="px-6 h-12 rounded-xl font-bold data-[state=active]:bg-primary data-[state=active]:text-white relative">
                 Encontros
-                {stats.pendingMeetings > 0 && <Badge className="absolute -top-1 -right-1 bg-red-500 text-white w-4 h-4 p-0 flex items-center justify-center rounded-full text-[8px]">{stats.pendingMeetings}</Badge>}
+                {stats.pendingMeetings > 0 && <Badge className="ml-2 bg-blue-500 text-white">{stats.pendingMeetings}</Badge>}
               </TabsTrigger>
-              <TabsTrigger value="checkpoints" className="px-6 h-12 rounded-xl font-bold data-[state=active]:bg-primary data-[state=active]:text-white">Checkpoints</TabsTrigger>
               <TabsTrigger value="notes" className="px-6 h-12 rounded-xl font-bold data-[state=active]:bg-primary data-[state=active]:text-white">Observações</TabsTrigger>
             </TabsList>
 
-            {/* ABA: VISÃO GERAL */}
-            <TabsContent value="overview" className="space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {journeyPhases.map(phase => {
-                  const pStatus = allPhaseProgress.filter(p => p.phaseId === phase.id);
-                  const completed = pStatus.filter(p => p.status === 'Completed').length;
-                  const inProgress = pStatus.filter(p => p.status === 'InProgress' || p.status === 'WaitingCheckpoint').length;
-                  const waitingMeet = pStatus.filter(p => p.status === 'ReadyToSchedule' || p.status === 'Scheduled' || p.status === 'WaitingApproval').length;
-
-                  return (
-                    <Card key={phase.id} className="border-none shadow-sm hover:shadow-md transition-all">
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-bold text-slate-800">{phase.order}. {phase.title}</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="grid grid-cols-3 gap-2 text-center">
-                          <div className="p-2 bg-green-50 rounded-lg">
-                            <p className="text-[9px] text-green-600 font-bold uppercase">Concluídos</p>
-                            <p className="text-lg font-bold text-green-700">{completed}</p>
-                          </div>
-                          <div className="p-2 bg-blue-50 rounded-lg">
-                            <p className="text-[9px] text-blue-600 font-bold uppercase">Em Trilha</p>
-                            <p className="text-lg font-bold text-blue-700">{inProgress}</p>
-                          </div>
-                          <div className="p-2 bg-orange-50 rounded-lg">
-                            <p className="text-[9px] text-orange-600 font-bold uppercase">Validando</p>
-                            <p className="text-lg font-bold text-orange-700">{waitingMeet}</p>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            </TabsContent>
-
-            {/* ABA: PARTICIPANTES */}
-            <TabsContent value="team">
-              <div className="bg-white rounded-3xl border shadow-sm overflow-hidden">
-                <div className="p-6 border-b bg-slate-50 flex justify-between items-center">
-                  <h3 className="font-bold text-slate-800">Membros da Implantação</h3>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-slate-50/50 text-slate-400 font-bold uppercase text-[10px]">
-                        <th className="px-6 py-4 text-left">Participante</th>
-                        <th className="px-6 py-4 text-left">Papel / Áreas</th>
-                        <th className="px-6 py-4 text-left">Status Geral</th>
-                        <th className="px-6 py-4 text-right">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {members.map(member => (
-                        <tr key={member.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-3">
-                              <div className={cn(
-                                "w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs",
-                                member.active ? "bg-primary/10 text-primary" : "bg-slate-200 text-slate-400"
-                              )}>
-                                {member.name.substring(0,2).toUpperCase()}
-                              </div>
-                              <div>
-                                <p className={cn("font-bold", member.active ? "text-slate-700" : "text-slate-400")}>{member.name}</p>
-                                <p className="text-[10px] text-slate-400">{member.email}</p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex flex-col gap-1">
-                              <Badge variant="outline" className="w-fit text-[9px] uppercase font-bold text-slate-500">{member.clientAccessType || 'participante'}</Badge>
-                              <div className="flex flex-wrap gap-1">
-                                {member.areas?.map((a: string) => (
-                                  <span key={a} className="text-[8px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded uppercase font-bold">{a}</span>
-                                ))}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <Badge variant={member.active ? 'default' : 'secondary'} className={cn(
-                              "text-[10px]",
-                              member.active ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-400"
-                            )}>
-                              {member.active ? "Ativo" : "Desativado"}
-                            </Badge>
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            {canOperate && member.role !== 'implementation_master' && (
-                              <Button 
-                                variant={member.active ? "ghost" : "outline"} 
-                                size="sm" 
-                                className={cn(member.active ? "text-red-500 hover:text-red-700 hover:bg-red-50" : "text-green-600")}
-                                onClick={() => toggleParticipant(member)}
-                                disabled={isProcessing}
-                              >
-                                {member.active ? <Trash2 className="w-4 h-4" /> : "Reativar"}
-                              </Button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </TabsContent>
-
-            {/* ABA: PROGRESSO */}
+            {/* ABA: PROGRESSO E VALIDAÇÃO */}
             <TabsContent value="progress" className="space-y-6">
               {members.filter(m => m.active && m.uid).map(member => {
                 const userAreas = member.areas || [];
                 const role = member.clientAccessType === 'master' ? 'client_master' : 'client_participant';
                 
-                // Módulos acessíveis por fase
                 const progressByPhase = journeyPhases.map(phase => {
                   const accessible = phase.modules.filter(m => canAccessModule(role, userAreas, m));
-                  const completedCount = accessible.filter(m => 
-                    allModuleProgress.some(p => p.uid === member.uid && p.moduleId === m.id && p.status === 'completed')
+                  const approvedCount = accessible.filter(m => 
+                    allModuleProgress.find(p => p.uid === member.uid && p.moduleId === m.id)?.moduleReviewStatus === 'approved'
                   ).length;
                   
                   const dbStatus = allPhaseProgress.find(p => p.uid === member.uid && p.phaseId === phase.id)?.status;
-                  const readyForCheckpoint = isPhaseReadyForCheckpoint(phase, userAreas, role, allModuleProgress.filter(p => p.uid === member.uid).map(p => p.moduleId));
-                  
-                  let displayStatus = dbStatus || (phase.id === 'fase-0' ? 'InProgress' : 'Locked');
-                  if (displayStatus === 'InProgress' && readyForCheckpoint) displayStatus = 'WaitingCheckpoint';
-
-                  return { phase, accessible, completedCount, status: displayStatus };
+                  return { phase, accessible, approvedCount, status: dbStatus || (phase.id === 'fase-0' ? 'InProgress' : 'Locked') };
                 }).filter(p => p.accessible.length > 0);
 
                 const totalAcc = progressByPhase.reduce((acc, curr) => acc + curr.accessible.length, 0);
-                const totalComp = progressByPhase.reduce((acc, curr) => acc + curr.completedCount, 0);
-                const globalPercent = totalAcc > 0 ? Math.round((totalComp / totalAcc) * 100) : 0;
+                const totalAppr = progressByPhase.reduce((acc, curr) => acc + curr.approvedCount, 0);
+                const globalPercent = totalAcc > 0 ? Math.round((totalAppr / totalAcc) * 100) : 0;
 
                 const isExpanded = expandedMember === member.uid;
 
                 return (
                   <Card key={member.uid} className="border-none shadow-sm overflow-hidden">
-                    <div 
-                      className="p-6 cursor-pointer hover:bg-slate-50 transition-colors flex flex-col md:flex-row justify-between items-center gap-6"
-                      onClick={() => setExpandedMember(isExpanded ? null : member.uid!)}
-                    >
+                    <div className="p-6 cursor-pointer hover:bg-slate-50 transition-colors flex flex-col md:flex-row justify-between items-center gap-6" onClick={() => setExpandedMember(isExpanded ? null : member.uid!)}>
                       <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center font-bold text-lg">
-                          {member.name.substring(0,2).toUpperCase()}
-                        </div>
+                        <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center font-bold text-lg">{member.name.substring(0,2).toUpperCase()}</div>
                         <div>
                           <h4 className="font-bold text-slate-900">{member.name}</h4>
                           <p className="text-xs text-slate-400 capitalize">{member.areas.join(', ')}</p>
                         </div>
                       </div>
-
                       <div className="flex-1 max-w-md w-full px-6">
                         <div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase mb-1">
-                          <span>Andamento Individual</span>
-                          <span>{globalPercent}% ({totalComp}/{totalAcc})</span>
+                          <span>Módulos Aprovados</span>
+                          <span>{globalPercent}% ({totalAppr}/{totalAcc})</span>
                         </div>
                         <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                          <div className="h-full bg-primary transition-all duration-500" style={{ width: `${globalPercent}%` }} />
+                          <div className="h-full bg-green-500 transition-all duration-500" style={{ width: `${globalPercent}%` }} />
                         </div>
                       </div>
-
                       <div className="flex items-center gap-4">
-                        <Badge variant="secondary" className="text-[10px] h-6 uppercase font-bold tracking-tighter">
-                          {progressByPhase.find(p => p.status !== 'Completed')?.status || 'Concluído'}
-                        </Badge>
                         {isExpanded ? <ChevronDown className="w-5 h-5 text-slate-300" /> : <ChevronRight className="w-5 h-5 text-slate-300" />}
                       </div>
                     </div>
 
                     {isExpanded && (
-                      <div className="border-t bg-slate-50/50 p-6 space-y-6 animate-in slide-in-from-top-2 duration-300">
+                      <div className="border-t bg-slate-50/50 p-6 space-y-8">
                         {progressByPhase.map(p => (
-                          <div key={p.phase.id} className="space-y-3">
-                            <div className="flex justify-between items-center px-1">
+                          <div key={p.phase.id} className="space-y-4">
+                            <div className="flex justify-between items-center border-b pb-2">
                               <h5 className="text-xs font-bold text-slate-700 uppercase tracking-widest">{p.phase.title}</h5>
-                              <Badge variant="outline" className={cn(
-                                "text-[9px] bg-white",
-                                p.status === 'WaitingCheckpoint' && "text-amber-600 border-amber-200 bg-amber-50"
-                              )}>
-                                {p.status === 'WaitingCheckpoint' ? 'Validação Pendente' : p.status}
-                              </Badge>
+                              <Badge variant="outline" className="text-[9px] bg-white">{p.status}</Badge>
                             </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            <div className="grid grid-cols-1 gap-4">
                               {p.accessible.map(mod => {
                                 const prog = allModuleProgress.find(mp => mp.uid === member.uid && mp.moduleId === mod.id);
-                                const isDone = prog?.status === 'completed';
+                                const reviewStatus = prog?.moduleReviewStatus;
                                 
                                 return (
                                   <div key={mod.id} className={cn(
-                                    "p-3 rounded-xl border bg-white flex items-center justify-between gap-3 shadow-sm",
-                                    isDone ? "border-green-100" : "border-slate-100"
+                                    "p-4 rounded-xl border bg-white shadow-sm flex flex-col md:flex-row justify-between gap-4",
+                                    reviewStatus === 'approved' ? "border-green-100" : reviewStatus === 'adjustment_requested' ? "border-red-100" : "border-slate-100"
                                   )}>
-                                    <div className="overflow-hidden">
-                                      <p className="text-[10px] font-bold text-slate-800 truncate leading-none mb-1">{mod.title}</p>
-                                      <p className="text-[8px] text-slate-400 uppercase tracking-tighter">{mod.isRequired ? 'Obrigatório' : 'Opcional'}</p>
+                                    <div className="flex-1 space-y-2">
+                                      <div className="flex items-center gap-2">
+                                        <p className="text-xs font-bold text-slate-800">{mod.title}</p>
+                                        <Badge variant="secondary" className="text-[8px] uppercase">{mod.area}</Badge>
+                                      </div>
+                                      {prog?.validationAnswer && (
+                                        <div className="bg-slate-50 p-3 rounded-lg border text-xs">
+                                          <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Resposta de Validação:</p>
+                                          <p className="text-slate-700 italic">"{prog.validationAnswer}"</p>
+                                        </div>
+                                      )}
+                                      {prog?.fileName && (
+                                        <div className="flex items-center gap-2 text-primary font-bold text-xs bg-blue-50 w-fit px-3 py-1.5 rounded-lg border border-blue-100">
+                                          <FileText className="w-3 h-3" /> {prog.fileName}
+                                          <Button variant="ghost" size="icon" className="h-5 w-5 ml-2"><ExternalLink className="w-3 h-3" /></Button>
+                                        </div>
+                                      )}
+                                      {prog?.reviewComment && (
+                                        <p className="text-[10px] text-slate-500 font-medium bg-slate-50 p-2 rounded">Comentário: {prog.reviewComment}</p>
+                                      )}
                                     </div>
-                                    <div className="shrink-0">
-                                      {isDone ? (
-                                        <div className="bg-green-100 p-1 rounded-full"><Check className="w-3 h-3 text-green-600" /></div>
+
+                                    <div className="flex flex-col justify-center gap-2 min-w-[150px]">
+                                      {reviewStatus === 'approved' ? (
+                                        <Badge className="bg-green-100 text-green-700 h-8 flex justify-center gap-2"><CheckCircle2 className="w-3 h-3" /> Validado</Badge>
+                                      ) : reviewStatus === 'adjustment_requested' ? (
+                                        <Badge className="bg-red-100 text-red-700 h-8 flex justify-center gap-2"><AlertTriangle className="w-3 h-3" /> Ajuste</Badge>
+                                      ) : prog?.status === 'completed' ? (
+                                        <div className="grid grid-cols-2 gap-2">
+                                          <Button size="sm" variant="outline" className="text-red-500 h-8 text-[10px]" onClick={() => { setSelectedItem(prog); setModuleActionType('adjust'); setActiveModal('module_review'); }}>Ajuste</Button>
+                                          <Button size="sm" className="bg-green-600 hover:bg-green-700 h-8 text-[10px]" onClick={() => { approveModuleReview({ uid: member.uid!, implId: implementationId as string, compId: implementation.companyId, phaseId: p.phase.id, moduleId: mod.id }); }}>Aprovar</Button>
+                                        </div>
                                       ) : (
-                                        <div className="bg-slate-50 p-1 rounded-full"><Clock className="w-3 h-3 text-slate-300" /></div>
+                                        <Badge variant="outline" className="h-8 flex justify-center text-slate-400">Pendente Cliente</Badge>
                                       )}
                                     </div>
                                   </div>
@@ -605,320 +390,79 @@ export default function ClientDetailPage() {
               })}
             </TabsContent>
 
-            {/* ABA: EVIDÊNCIAS */}
-            <TabsContent value="evidence">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {allModuleProgress.filter(p => p.evidenceStatus).length === 0 ? (
-                  <Card className="col-span-full py-20 text-center border-dashed border-2">
-                    <FileText className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-                    <p className="text-slate-500">Nenhuma evidência enviada até o momento.</p>
-                  </Card>
-                ) : (
-                  allModuleProgress.filter(p => p.evidenceStatus).map(ev => {
-                    const member = members.find(m => m.uid === ev.uid);
-                    return (
-                      <Card key={ev.id} className={cn(
-                        "border-none shadow-sm overflow-hidden bg-white border-l-4",
-                        ev.evidenceStatus === 'submitted' ? "border-l-orange-400" :
-                        ev.evidenceStatus === 'approved' ? "border-l-green-400" : "border-l-red-400"
-                      )}>
-                        <CardHeader className="pb-2">
-                          <div className="flex justify-between items-start">
-                             <div>
-                               <p className="text-[10px] font-bold text-slate-400 uppercase">{ev.phaseId} / {ev.moduleId}</p>
-                               <CardTitle className="text-sm font-bold mt-1">{member?.name || 'Membro'}</CardTitle>
-                             </div>
-                             <Badge variant={ev.evidenceStatus === 'approved' ? 'default' : 'secondary'} className="text-[9px]">
-                               {ev.evidenceStatus === 'submitted' ? 'Enviada' : 
-                                ev.evidenceStatus === 'approved' ? 'Aprovada' :
-                                ev.evidenceStatus === 'adjustment_requested' ? 'Ajuste Solicitado' : 'Rejeitada'}
-                             </Badge>
-                          </div>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                          <div className="bg-slate-50 p-3 rounded-lg flex items-center gap-3 border">
-                            <FileText className="w-5 h-5 text-slate-400" />
-                            <div className="flex-1 overflow-hidden">
-                              <p className="text-xs font-bold text-slate-700 truncate">{ev.fileName}</p>
-                              <p className="text-[9px] text-slate-400">Em {ev.updatedAt?.toDate() ? format(ev.updatedAt.toDate(), "dd/MM/yy HH:mm", { locale: ptBR }) : '...'}</p>
-                            </div>
-                            <Button variant="ghost" size="icon" className="h-8 w-8"><ExternalLink className="w-4 h-4" /></Button>
-                          </div>
-                          
-                          {ev.evidenceStatus === 'approved' && (
-                             <div className="bg-green-50/50 p-2 rounded border border-green-100 flex items-center gap-2">
-                               <CheckCircle2 className="w-3 h-3 text-green-600" />
-                               <span className="text-[9px] font-bold text-green-700 uppercase tracking-tighter">Evidência validada pelo especialista</span>
-                             </div>
-                          )}
-
-                          {ev.reviewComment && (
-                             <div className="space-y-2">
-                                <Label className="text-[10px] font-bold text-slate-400 uppercase">Parecer do Implantador:</Label>
-                                <div className="text-xs italic text-slate-600 bg-slate-100 p-2 rounded">"{ev.reviewComment}"</div>
-                             </div>
-                          )}
-                        </CardContent>
-                        {canOperate && ev.evidenceStatus === 'submitted' && (
-                          <CardFooter className="bg-slate-50 py-3 border-t grid grid-cols-2 gap-2">
-                            <Button variant="outline" size="sm" className="text-[10px] font-bold" onClick={() => { setSelectedItem(ev); setActiveModal('evidence'); }}>Solicitar Ajuste</Button>
-                            <Button size="sm" className="text-[10px] font-bold bg-green-600 hover:bg-green-700" onClick={() => { setSelectedItem(ev); handleReviewEvidence('approved'); }}>Aprovar Arquivo</Button>
-                          </CardFooter>
-                        )}
-                      </Card>
-                    );
-                  })
-                )}
+            {/* ABA: PARTICIPANTES */}
+            <TabsContent value="team">
+              <div className="bg-white rounded-3xl border shadow-sm overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50/50 text-slate-400 font-bold uppercase text-[10px]"><th className="px-6 py-4 text-left">Participante</th><th className="px-6 py-4 text-left">Áreas</th><th className="px-6 py-4 text-left">Status</th><th className="px-6 py-4 text-right">Ações</th></tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {members.map(member => (
+                      <tr key={member.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-6 py-4 flex items-center gap-3">
+                          <div className={cn("w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs", member.active ? "bg-primary/10 text-primary" : "bg-slate-200 text-slate-400")}>{member.name.substring(0,2).toUpperCase()}</div>
+                          <div><p className={cn("font-bold", member.active ? "text-slate-700" : "text-slate-400")}>{member.name}</p><p className="text-[10px] text-slate-400">{member.email}</p></div>
+                        </td>
+                        <td className="px-6 py-4"><div className="flex flex-wrap gap-1">{member.areas?.map((a: string) => <span key={a} className="text-[8px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded uppercase font-bold">{a}</span>)}</div></td>
+                        <td className="px-6 py-4"><Badge variant={member.active ? 'default' : 'secondary'} className={cn("text-[10px]", member.active ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-400")}>{member.active ? "Ativo" : "Desativado"}</Badge></td>
+                        <td className="px-6 py-4 text-right">{canOperate && member.role !== 'implementation_master' && <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700" onClick={() => {}}><Trash2 className="w-4 h-4" /></Button>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </TabsContent>
 
             {/* ABA: ENCONTROS */}
             <TabsContent value="meetings">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {allMeetings.length === 0 ? (
-                  <Card className="col-span-full py-20 text-center border-dashed border-2">
-                    <Calendar className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-                    <p className="text-slate-500">Nenhum encontro registrado até o momento.</p>
-                  </Card>
-                ) : (
+                {allMeetings.length === 0 ? <Card className="col-span-full py-20 text-center border-dashed border-2"><Calendar className="w-12 h-12 text-slate-200 mx-auto mb-4" /><p className="text-slate-500">Nenhum encontro registrado.</p></Card> : 
                   allMeetings.map(meet => {
                     const member = members.find(m => m.uid === meet.uid);
-                    const isWaiting = meet.status === 'WaitingApproval';
-                    const isScheduled = meet.status === 'Scheduled';
-
                     return (
-                      <Card key={meet.id} className={cn(
-                        "border-none shadow-md overflow-hidden bg-white border-l-4",
-                        meet.status === 'Completed' ? "border-l-green-500" :
-                        meet.status === 'PendingAdjustments' ? "border-l-red-500" : "border-l-blue-500"
-                      )}>
+                      <Card key={meet.id} className={cn("border-none shadow-md overflow-hidden bg-white border-l-4", meet.status === 'Completed' ? "border-l-green-500" : meet.status === 'PendingAdjustments' ? "border-l-red-500" : "border-l-blue-500")}>
                         <div className="p-6 space-y-6">
                           <div className="flex justify-between items-start">
                             <div className="flex items-center gap-3">
-                              <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600">
-                                <Calendar className="w-6 h-6" />
-                              </div>
-                              <div>
-                                <h4 className="font-bold text-slate-900">{member?.name || 'Participante'}</h4>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{meet.phaseId}</p>
-                              </div>
+                              <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600"><Calendar className="w-6 h-6" /></div>
+                              <div><h4 className="font-bold text-slate-900">{member?.name || 'Participante'}</h4><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{meet.phaseId}</p></div>
                             </div>
-                            <Badge variant={meet.status === 'Completed' ? "default" : "secondary"} className="text-[10px]">
-                              {meet.status}
-                            </Badge>
+                            <Badge variant={meet.status === 'Completed' ? "default" : "secondary"}>{meet.status}</Badge>
                           </div>
-
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="bg-slate-50 p-3 rounded-xl border">
-                              <p className="text-[9px] font-bold text-slate-400 uppercase">Data Agendada</p>
-                              <p className="text-sm font-bold text-slate-700">{meet.scheduledDate}</p>
-                            </div>
-                            <div className="bg-slate-50 p-3 rounded-xl border">
-                              <p className="text-[9px] font-bold text-slate-400 uppercase">Horário</p>
-                              <p className="text-sm font-bold text-slate-700">{meet.scheduledTime}</p>
-                            </div>
-                          </div>
-
-                          {isScheduled && canOperate && (
-                             <Button variant="outline" className="w-full text-blue-600 font-bold" onClick={() => { setSelectedItem(meet); handleMeetingAction('realized'); }}>
-                               Marcar como Realizado
-                             </Button>
-                          )}
-
-                          {isWaiting && canOperate && (
+                          <div className="grid grid-cols-2 gap-4"><div className="bg-slate-50 p-3 rounded-xl border text-sm font-bold text-slate-700">{meet.scheduledDate}</div><div className="bg-slate-50 p-3 rounded-xl border text-sm font-bold text-slate-700">{meet.scheduledTime}</div></div>
+                          {meet.status === 'WaitingApproval' && canOperate && (
                             <div className="space-y-4 pt-2 border-t">
-                              <div className="space-y-2">
-                                <Label className="text-xs font-bold text-slate-500">Parecer Final do Especialista</Label>
-                                <Textarea 
-                                  placeholder="Detalhe o resultado do encontro ou solicite ajustes..." 
-                                  className="text-xs min-h-[80px] bg-slate-50/50"
-                                  value={reviewComment}
-                                  onChange={(e) => setReviewComment(e.target.value)}
-                                />
-                              </div>
+                              <Textarea placeholder="Parecer final..." className="text-xs" value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} />
                               <div className="grid grid-cols-2 gap-3">
-                                <Button 
-                                  variant="outline" 
-                                  className="text-red-600 border-red-200 hover:bg-red-50 font-bold"
-                                  onClick={() => { setSelectedItem(meet); handleMeetingAction('adjust'); }}
-                                  disabled={isProcessing}
-                                >
-                                  Solicitar Ajuste
-                                </Button>
-                                <Button 
-                                  className="bg-green-600 hover:bg-green-700 text-white font-bold shadow-lg shadow-green-100"
-                                  onClick={() => { setSelectedItem(meet); handleMeetingAction('approve'); }}
-                                  disabled={isProcessing}
-                                >
-                                  Aprovar Etapa
-                                </Button>
+                                <Button variant="outline" className="text-red-600 font-bold" onClick={() => { setSelectedItem(meet); handleMeetingAction('adjust'); }}>Solicitar Ajuste</Button>
+                                <Button className="bg-green-600 font-bold" onClick={() => { setSelectedItem(meet); handleMeetingAction('approve'); }}>Aprovar Etapa</Button>
                               </div>
                             </div>
-                          )}
-                          
-                          {meet.reviewComment && (
-                             <div className="bg-slate-50 p-4 rounded-xl border">
-                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Feedback de Revisão:</p>
-                                <p className="text-xs text-slate-700 italic">"{meet.reviewComment}"</p>
-                             </div>
                           )}
                         </div>
                       </Card>
                     );
                   })
-                )}
-              </div>
-            </TabsContent>
-
-            {/* ABA: CHECKPOINTS */}
-            <TabsContent value="checkpoints">
-              <div className="bg-white rounded-3xl border shadow-sm overflow-hidden">
-                {allSubmissions.length === 0 ? (
-                  <div className="p-20 text-center text-slate-500">
-                    <CheckCircle2 className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-                    <p>Nenhum checkpoint respondido nesta implantação.</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-slate-50 text-slate-400 font-bold uppercase text-[10px]">
-                        <tr>
-                          <th className="px-6 py-4 text-left">Usuário</th>
-                          <th className="px-6 py-4 text-left">Fase</th>
-                          <th className="px-6 py-4 text-left">Score</th>
-                          <th className="px-6 py-4 text-left">Data</th>
-                          <th className="px-6 py-4 text-right">Respostas</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {allSubmissions.map(sub => {
-                          const member = members.find(m => m.uid === sub.uid);
-                          return (
-                            <tr key={sub.id}>
-                              <td className="px-6 py-4 font-bold text-slate-700">{member?.name || 'Membro'}</td>
-                              <td className="px-6 py-4 uppercase text-[10px] font-bold text-slate-500">{sub.phaseId}</td>
-                              <td className="px-6 py-4">
-                                <Badge className={sub.passed ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}>
-                                  {sub.score}%
-                                </Badge>
-                              </td>
-                              <td className="px-6 py-4 text-slate-500 text-xs">
-                                {sub.submittedAt?.toDate() ? format(sub.submittedAt.toDate(), "dd/MM/yy HH:mm", { locale: ptBR }) : '...'}
-                              </td>
-                              <td className="px-6 py-4 text-right">
-                                <Dialog>
-                                  <DialogTrigger asChild><Button variant="ghost" size="sm">Ver Detalhes</Button></DialogTrigger>
-                                  <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-                                    <DialogHeader><DialogTitle>Respostas de: {member?.name}</DialogTitle></DialogHeader>
-                                    <div className="space-y-4 py-4">
-                                      {Object.entries(sub.answers || {}).map(([qId, ans]: any) => (
-                                        <div key={qId} className="p-4 bg-slate-50 rounded-lg border">
-                                          <p className="text-xs font-bold text-slate-400 uppercase mb-2">ID Questão: {qId}</p>
-                                          <p className="text-sm font-medium text-slate-800">{ans}</p>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </DialogContent>
-                                </Dialog>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                }
               </div>
             </TabsContent>
 
             {/* ABA: OBSERVAÇÕES */}
             <TabsContent value="notes" className="space-y-6">
-              <Card className="border-none shadow-sm overflow-hidden">
-                <CardHeader>
-                  <CardTitle className="text-lg">Registrar Nova Observação</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <Textarea 
-                    placeholder="Adicione um comentário importante sobre esta implantação..."
-                    className="min-h-[100px]"
-                    value={newNote}
-                    onChange={(e) => setNewNote(e.target.value)}
-                  />
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <div className="flex gap-4">
-                       <label className="flex items-center gap-2 cursor-pointer">
-                         <input type="radio" checked={noteVisibility === 'internal'} onChange={() => setNoteVisibility('internal')} />
-                         <span className="text-xs font-bold text-slate-500 uppercase tracking-tighter">Interna (2tech)</span>
-                       </label>
-                       <label className="flex items-center gap-2 cursor-pointer">
-                         <input type="radio" checked={noteVisibility === 'client_visible'} onChange={() => setNoteVisibility('client_visible')} />
-                         <span className="text-xs font-bold text-blue-600 uppercase tracking-tighter">Pública (Cliente)</span>
-                       </label>
-                    </div>
-                    <Button onClick={handleAddNote} disabled={isProcessing || !newNote.trim()}>
-                      {isProcessing ? "Salvando..." : "Registrar Nota"}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <div className="space-y-4">
-                {allNotes.length === 0 ? (
-                  <p className="text-center py-10 text-slate-400 text-sm">Nenhuma observação registrada.</p>
-                ) : (
-                  allNotes.map(note => (
-                    <Card key={note.id} className={cn(
-                      "border-none shadow-sm",
-                      note.visibility === 'internal' ? "bg-slate-50" : "bg-blue-50/30 border border-blue-100"
-                    )}>
-                      <CardContent className="p-4 space-y-2">
-                        <div className="flex justify-between items-start">
-                          <div className="flex items-center gap-2">
-                            <User className="w-3 h-3 text-slate-400" />
-                            <span className="text-[10px] font-bold text-slate-500 uppercase">{note.createdByName}</span>
-                            <Badge variant="outline" className={cn(
-                              "text-[8px] uppercase",
-                              note.visibility === 'internal' ? "text-slate-400" : "text-blue-500 border-blue-200"
-                            )}>
-                              {note.visibility === 'internal' ? "Interna" : "Pública"}
-                            </Badge>
-                          </div>
-                          <span className="text-[10px] text-slate-400">
-                            {note.createdAt?.toDate() ? format(note.createdAt.toDate(), "dd/MM HH:mm", { locale: ptBR }) : '...'}
-                          </span>
-                        </div>
-                        <p className="text-sm text-slate-700 leading-relaxed">{note.note}</p>
-                      </CardContent>
-                    </Card>
-                  ))
-                )}
-              </div>
+              <Card className="border-none shadow-sm overflow-hidden"><CardHeader><CardTitle className="text-lg">Registrar Nova Observação</CardTitle></CardHeader><CardContent className="space-y-4"><Textarea placeholder="Adicione um comentário..." className="min-h-[100px]" value={newNote} onChange={(e) => setNewNote(e.target.value)}/><div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"><div className="flex gap-4"><label className="flex items-center gap-2 cursor-pointer"><input type="radio" checked={noteVisibility === 'internal'} onChange={() => setNoteVisibility('internal')} /><span className="text-xs font-bold text-slate-500 uppercase">Interna</span></label><label className="flex items-center gap-2 cursor-pointer"><input type="radio" checked={noteVisibility === 'client_visible'} onChange={() => setNoteVisibility('client_visible')} /><span className="text-xs font-bold text-blue-600 uppercase">Pública</span></label></div><Button onClick={() => {}} disabled={isProcessing || !newNote.trim()}>Registrar Nota</Button></div></CardContent></Card>
             </TabsContent>
           </Tabs>
         </main>
 
-        {/* Modal Genérico para Feedback de Ajustes */}
-        <Dialog open={activeModal === 'evidence'} onOpenChange={(open) => !open && setActiveModal('none')}>
+        <Dialog open={activeModal === 'module_review'} onOpenChange={(open) => !open && setActiveModal('none')}>
           <DialogContent>
-            <DialogHeader><DialogTitle>Solicitar Ajuste na Evidência</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>{moduleActionType === 'adjust' ? 'Solicitar Ajuste no Módulo' : 'Rejeitar Módulo'}</DialogTitle></DialogHeader>
             <div className="py-4 space-y-4">
-               <div className="bg-orange-50 p-3 rounded-lg border border-orange-100 flex gap-3">
-                 <AlertTriangle className="w-5 h-5 text-orange-500 shrink-0" />
-                 <p className="text-xs text-orange-800">O cliente será notificado que este arquivo precisa de alterações.</p>
-               </div>
-               <div className="space-y-2">
-                 <Label>O que precisa ser corrigido? (Obrigatório)</Label>
-                 <Textarea 
-                   placeholder="Descreva aqui o erro ou o que falta no print enviado..."
-                   value={reviewComment}
-                   onChange={(e) => setReviewComment(e.target.value)}
-                 />
-               </div>
+               <div className="bg-orange-50 p-3 rounded-lg border border-orange-100 flex gap-3"><AlertTriangle className="w-5 h-5 text-orange-500 shrink-0" /><p className="text-xs text-orange-800">O cliente precisará reenviar este item para análise.</p></div>
+               <div className="space-y-2"><Label>O que precisa ser corrigido?</Label><Textarea placeholder="Explique o motivo do ajuste..." value={reviewComment} onChange={(e) => setReviewComment(e.target.value)}/></div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setActiveModal('none')}>Cancelar</Button>
-              <Button disabled={isProcessing || !reviewComment.trim()} onClick={() => handleReviewEvidence('adjustment_requested')}>Confirmar Solicitação</Button>
-            </DialogFooter>
+            <DialogFooter><Button variant="outline" onClick={() => setActiveModal('none')}>Cancelar</Button><Button disabled={isProcessing || !reviewComment.trim()} onClick={handleModuleReview}>Confirmar</Button></DialogFooter>
           </DialogContent>
         </Dialog>
       </div>

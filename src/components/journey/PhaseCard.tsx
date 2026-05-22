@@ -16,7 +16,8 @@ const statusConfig: Record<PhaseStatus, { label: string; color: string; icon: an
   Locked: { label: "Bloqueada", color: "bg-gray-200 text-gray-500", icon: Lock },
   NotStarted: { label: "Não iniciada", color: "bg-gray-100 text-gray-600", icon: Clock },
   InProgress: { label: "Em andamento", color: "bg-blue-100 text-blue-700", icon: Clock },
-  WaitingCheckpoint: { label: "Validação pendente", color: "bg-amber-100 text-amber-700", icon: ClipboardList },
+  WaitingModuleApproval: { label: "Aguardando aprovação", color: "bg-amber-100 text-amber-700", icon: Clock },
+  WaitingCheckpoint: { label: "Aguardando aprovação", color: "bg-amber-100 text-amber-700", icon: Clock },
   ReadyToSchedule: { label: "Pronta para agendar", color: "bg-orange-100 text-orange-700", icon: Calendar },
   Scheduled: { label: "Encontro agendado", color: "bg-purple-100 text-purple-700", icon: Calendar },
   WaitingApproval: { label: "Aguardando aprovação", color: "bg-indigo-100 text-indigo-700", icon: Clock },
@@ -26,7 +27,9 @@ const statusConfig: Record<PhaseStatus, { label: string; color: string; icon: an
 
 export function PhaseCard({ phase, status }: PhaseCardProps) {
   const isLocked = status === 'Locked';
-  const Icon = statusConfig[status]?.icon || Clock;
+  const displayStatus = status === 'WaitingCheckpoint' ? 'WaitingModuleApproval' : status;
+  const config = statusConfig[displayStatus as PhaseStatus] || statusConfig.NotStarted;
+  const Icon = config.icon;
 
   return (
     <Card className={cn(
@@ -36,9 +39,9 @@ export function PhaseCard({ phase, status }: PhaseCardProps) {
     )}>
       <CardHeader className="pb-2">
         <div className="flex justify-between items-start mb-2">
-          <Badge variant="outline" className={cn("font-bold text-[10px] uppercase tracking-tighter", statusConfig[status]?.color)}>
+          <Badge variant="outline" className={cn("font-bold text-[10px] uppercase tracking-tighter", config.color)}>
             <Icon className="w-3 h-3 mr-1" />
-            {statusConfig[status]?.label}
+            {config.label}
           </Badge>
           {phase.hasMeeting && (
             <Badge variant="secondary" className="bg-orange-50 text-orange-700 border-orange-100 text-[10px] font-bold">
@@ -76,7 +79,7 @@ export function PhaseCard({ phase, status }: PhaseCardProps) {
         ) : (
           <Button asChild className="w-full bg-primary hover:bg-primary/90 h-11 rounded-xl font-bold">
             <Link href={`/phases/${phase.id}`}>
-              {status === 'Completed' ? "Revisar Conteúdo" : status === 'WaitingCheckpoint' ? "Fazer Validação" : "Acessar Fase"}
+              {status === 'Completed' ? "Revisar Conteúdo" : "Acessar Fase"}
               <ArrowRight className="w-4 h-4 ml-2" />
             </Link>
           </Button>

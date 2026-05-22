@@ -7,7 +7,7 @@ import { useJourneyStore } from "@/hooks/useJourneyStore";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, CheckCircle2, PlayCircle, FileText, Info, AlertTriangle, Upload, Check, ClipboardList, Loader2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, PlayCircle, FileText, Info, AlertTriangle, Upload, Check, ClipboardList, Loader2, Clock } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useState, useEffect } from "react";
@@ -54,6 +54,9 @@ export default function ModuleDetailPage() {
 
   const isCompleted = progress.completedModules.includes(module.id);
   const evidence = progress.uploadedEvidence[module.id];
+  const reviewStatus = evidence?.reviewStatus;
+  const isApproved = reviewStatus === 'approved';
+  const isAdjustment = reviewStatus === 'adjustment_requested';
 
   const handleComplete = async () => {
     const trimmedAnswer = valAnswer.trim();
@@ -67,7 +70,7 @@ export default function ModuleDetailPage() {
       return;
     }
 
-    if (trimmedAnswer.length < 5 && !isCompleted) {
+    if (trimmedAnswer.length < 5 && !isApproved) {
       toast({
         title: "Resposta de Validação",
         description: "Por favor, responda a pergunta de validação com pelo menos 5 caracteres.",
@@ -80,13 +83,13 @@ export default function ModuleDetailPage() {
     try {
       await completeModule(module.id, phase.id as string, effectiveAreas, trimmedAnswer);
       toast({
-        title: "Módulo Concluído!",
-        description: "Seu progresso individual foi salvo com sucesso.",
+        title: "Módulo Enviado!",
+        description: "Sua resposta foi enviada para análise do especialista.",
       });
       
       router.push(`/phases/${phase.id}`);
     } catch (e) {
-      toast({ title: "Erro", description: "Não foi possível salvar seu progresso.", variant: "destructive" });
+      toast({ title: "Erro", description: "Não foi possível enviar seu progresso.", variant: "destructive" });
     } finally {
       setIsSubmitting(false);
     }
@@ -98,7 +101,7 @@ export default function ModuleDetailPage() {
         await uploadEvidence(module.id, e.target.files[0].name, phase.id as string);
         toast({
           title: "Arquivo Registrado",
-          description: "Sua evidência foi enviada para revisão.",
+          description: "Sua evidência foi enviada para análise.",
         });
       } catch (err) {
         toast({ title: "Erro", description: "Falha ao registrar arquivo.", variant: "destructive" });
@@ -119,6 +122,8 @@ export default function ModuleDetailPage() {
                 <div className="flex items-center gap-2 mb-1">
                   <Badge variant="secondary" className="bg-blue-50 text-primary border-blue-100 capitalize">{module.area}</Badge>
                   <Badge variant="outline" className="text-xs font-bold">{module.type}</Badge>
+                  {isApproved && <Badge className="bg-green-100 text-green-700 border-green-200">Aprovado pelo Especialista</Badge>}
+                  {isAdjustment && <Badge className="bg-red-100 text-red-700 border-red-200">Ajuste Solicitado</Badge>}
                 </div>
                 <h1 className="text-3xl font-headline font-bold text-primary">{module.title}</h1>
               </div>
@@ -201,11 +206,20 @@ export default function ModuleDetailPage() {
               </CardContent>
             </Card>
 
-            <Card className={cn("shadow-xl border-2 transition-all duration-500", isCompleted ? "border-green-200 bg-green-50/10" : "border-slate-100 bg-white")}>
+            <Card className={cn("shadow-xl border-2 transition-all duration-500", isApproved ? "border-green-200 bg-green-50/10" : isAdjustment ? "border-red-200 bg-red-50/10" : isCompleted ? "border-amber-200 bg-amber-50/10" : "border-slate-100 bg-white")}>
               <CardHeader>
-                <CardTitle className="text-base font-bold text-slate-800">Sua Conclusão Individual</CardTitle>
+                <CardTitle className="text-base font-bold text-slate-800">Validação do Módulo</CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
+                {isAdjustment && evidence?.implantadorComment && (
+                  <div className="bg-red-50 p-3 rounded-xl border border-red-100 mb-2">
+                    <p className="text-[10px] font-bold text-red-600 uppercase mb-1 flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" /> Feedback do Implantador:
+                    </p>
+                    <p className="text-xs text-red-800 italic leading-snug">"{evidence.implantadorComment}"</p>
+                  </div>
+                )}
+
                 {module.requiresEvidence && (
                   <div className="space-y-3">
                     <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
@@ -213,12 +227,26 @@ export default function ModuleDetailPage() {
                     </Label>
                     <p className="text-[11px] text-slate-500 mb-2 leading-tight italic">{module.evidenceDescription}</p>
                     {evidence ? (
-                      <div className="flex items-center gap-3 bg-white p-3 rounded-xl border border-green-200 text-green-700 text-[10px] font-bold shadow-sm">
+                      <div className={cn(
+                        "flex items-center gap-3 p-3 rounded-xl border font-bold shadow-sm text-[10px]",
+                        isApproved ? "bg-white border-green-200 text-green-700" :
+                        isAdjustment ? "bg-white border-red-200 text-red-700" :
+                        "bg-white border-amber-200 text-amber-700"
+                      )}>
                         <Check className="w-4 h-4 shrink-0" /> 
                         <span className="truncate">{evidence.name}</span>
-                        <Badge variant="outline" className="ml-auto text-[8px] border-green-200 text-green-600">Enviado</Badge>
+                        <Badge variant="outline" className={cn(
+                          "ml-auto text-[8px]",
+                          isApproved ? "border-green-200 text-green-600" :
+                          isAdjustment ? "border-red-200 text-red-600" :
+                          "border-amber-200 text-amber-600"
+                        )}>
+                          {isApproved ? 'Aprovado' : isAdjustment ? 'Corrigir' : 'Em Análise'}
+                        </Badge>
                       </div>
-                    ) : (
+                    ) : null}
+
+                    {(!isApproved || isAdjustment) && (
                       <div className="relative group">
                         <Input 
                           type="file" 
@@ -227,7 +255,9 @@ export default function ModuleDetailPage() {
                         />
                         <Button variant="outline" className="w-full h-20 border-dashed border-2 flex flex-col gap-1 group-hover:border-primary group-hover:bg-primary/5 transition-all rounded-xl">
                           <Upload className="w-5 h-5 text-slate-300 group-hover:text-primary mb-1" />
-                          <span className="text-[10px] font-bold text-slate-400 group-hover:text-primary">Anexar Print da Tela</span>
+                          <span className="text-[10px] font-bold text-slate-400 group-hover:text-primary">
+                            {evidence ? 'Substituir arquivo' : 'Anexar Print da Tela'}
+                          </span>
                         </Button>
                       </div>
                     )}
@@ -236,11 +266,11 @@ export default function ModuleDetailPage() {
 
                 <div className="space-y-3">
                   <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                    Pergunta de Validação
+                    Resposta de Validação
                   </Label>
                   <p className="text-xs font-bold text-primary mb-2 italic">"{module.validationQuestion}"</p>
                   <textarea 
-                    disabled={isCompleted}
+                    disabled={isApproved}
                     className="w-full text-xs p-4 rounded-xl border-2 bg-slate-50 focus:bg-white focus:border-primary focus:ring-4 focus:ring-primary/5 transition-all min-h-[120px] resize-none outline-none"
                     placeholder="Responda aqui para confirmar seu aprendizado..."
                     value={valAnswer}
@@ -249,17 +279,21 @@ export default function ModuleDetailPage() {
                 </div>
               </CardContent>
               <CardFooter>
-                {isCompleted ? (
+                {isApproved ? (
                   <div className="w-full flex items-center justify-center gap-2 text-green-700 font-bold bg-green-100 py-4 rounded-xl text-sm border border-green-200">
-                    <CheckCircle2 className="w-5 h-5" /> Módulo Concluído
+                    <CheckCircle2 className="w-5 h-5" /> Módulo Validado
                   </div>
                 ) : (
                   <Button 
-                    className="w-full bg-secondary text-primary font-bold hover:bg-secondary/90 h-14 rounded-xl shadow-xl shadow-secondary/10 text-base"
+                    className={cn(
+                      "w-full font-bold h-14 rounded-xl shadow-xl text-base",
+                      isAdjustment ? "bg-red-600 hover:bg-red-700 text-white" : "bg-secondary text-primary hover:bg-secondary/90 shadow-secondary/10"
+                    )}
                     onClick={handleComplete}
                     disabled={isSubmitting}
                   >
-                    {isSubmitting ? <Loader2 className="animate-spin mr-2" /> : "Concluir Etapa"}
+                    {isSubmitting ? <Loader2 className="animate-spin mr-2" /> : 
+                     isAdjustment ? "Reenviar para Análise" : "Enviar para Análise"}
                   </Button>
                 )}
               </CardFooter>
