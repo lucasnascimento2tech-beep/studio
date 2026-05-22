@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useUser } from "@/firebase";
@@ -29,8 +30,8 @@ export function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
       return;
     }
 
+    // Verificação de papéis permitidos
     if (allowedRoles && !allowedRoles.includes(user.globalRole as GlobalRole)) {
-      // Redirecionamento inteligente baseado em Role se tentar acessar rota proibida
       if (user.globalRole === 'admin_2tech' || user.globalRole === 'implantador') {
         router.push("/implantador");
       } else if (user.globalRole === 'client_pending') {
@@ -52,18 +53,10 @@ export function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
     );
   }
 
-  // Não renderiza nada se não estiver logado
+  // Não renderiza nada se não estiver autorizado (evita flash de conteúdo)
   if (!user) return null;
-
-  // Bloqueio de renderização para client_pending em rotas privadas
-  if (user.globalRole === 'client_pending' && pathname !== '/pending-approval') {
-    return null;
-  }
-
-  // Bloqueio de renderização se o papel não for permitido
-  if (allowedRoles && !allowedRoles.includes(user.globalRole as GlobalRole)) {
-    return null;
-  }
+  if (user.globalRole === 'client_pending' && pathname !== '/pending-approval') return null;
+  if (allowedRoles && !allowedRoles.includes(user.globalRole as GlobalRole)) return null;
 
   return <>{children}</>;
 }

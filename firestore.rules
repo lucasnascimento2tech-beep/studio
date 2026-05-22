@@ -21,7 +21,6 @@ service cloud.firestore {
       return isAuthenticated() && getUserData().globalRole == 'implantador';
     }
 
-    // Verifica se o implantador logado é o responsável direto por esta implantação
     function isAssignedImplantador(implementationId) {
       return isAuthenticated() 
         && getUserData().globalRole == 'implantador' 
@@ -51,7 +50,6 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if isOwnUser(uid) || isAdmin() || isImplantador();
       
-      // Usuário comum só cria o próprio perfil como pendente e inativo
       allow create: if isOwnUser(uid) 
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.globalRole == 'client_pending'
@@ -60,7 +58,6 @@ service cloud.firestore {
         && !('companyId' in request.resource.data)
         && !('implementationId' in request.resource.data);
         
-      // Proteção contra autopromoção e alteração de vínculos
       allow update: if isAdmin() 
         || (isImplantador() && !request.resource.data.globalRole.matches('admin_2tech|implantador'))
         || (isOwnUser(uid) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
@@ -70,12 +67,10 @@ service cloud.firestore {
 
     match /accessRequests/{requestId} {
       allow read: if isAdmin() || isImplantador() || (isAuthenticated() && resource.data.uid == request.auth.uid);
-      
       allow create: if isAuthenticated() 
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.status == 'pending'
         && request.resource.data.source == 'self_registration';
-        
       allow update: if isAdmin() || isImplantador();
     }
 
@@ -98,7 +93,6 @@ service cloud.firestore {
     match /implementations/{implId} {
       allow read: if isAdmin() || belongsToImplementation(implId) || isAssignedImplantador(implId);
       allow create: if isAdmin() || isImplantador();
-      // Impedir que implantador mude o responsável se já estiver atribuído
       allow update: if isAdmin() || (
         isAssignedImplantador(implId) && 
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['assignedImplantadorUid'])
@@ -140,11 +134,17 @@ service cloud.firestore {
         || (isAuthenticated() && isClientMaster(resource.data.companyId)) 
         || (isAuthenticated() && isOwnUser(resource.data.uid));
         
-      allow write: if isAdmin() 
+      allow create: if isAdmin() 
         || isAssignedImplantador(request.resource.data.implementationId) 
         || (isOwnUser(request.resource.data.uid) 
             && belongsToImplementation(request.resource.data.implementationId)
             && belongsToCompany(request.resource.data.companyId));
+
+      allow update: if isAdmin() 
+        || isAssignedImplantador(resource.data.implementationId) 
+        || (isOwnUser(resource.data.uid) 
+            && belongsToImplementation(resource.data.implementationId)
+            && belongsToCompany(resource.data.companyId));
     }
 
     match /phaseProgress/{progressId} {
@@ -153,10 +153,16 @@ service cloud.firestore {
         || (isAuthenticated() && isClientMaster(resource.data.companyId)) 
         || (isAuthenticated() && isOwnUser(resource.data.uid));
         
-      allow write: if isAdmin() 
+      allow create: if isAdmin() 
         || isAssignedImplantador(request.resource.data.implementationId) 
         || (isOwnUser(request.resource.data.uid) 
             && belongsToImplementation(request.resource.data.implementationId)
+            && belongsToCompany(request.resource.data.companyId));
+
+      allow update: if isAdmin() 
+        || isAssignedImplantador(resource.data.implementationId) 
+        || (isOwnUser(resource.data.uid) 
+            && belongsToImplementation(resource.data.implementationId)
             && belongsToCompany(request.resource.data.companyId));
     }
 
@@ -166,14 +172,17 @@ service cloud.firestore {
         || (isAuthenticated() && isClientMaster(resource.data.companyId)) 
         || (isAuthenticated() && isOwnUser(resource.data.uid));
       
-      allow create: if isAuthenticated()
-        && request.resource.data.uid == request.auth.uid
-        && getUserData().implementationId == request.resource.data.implementationId
-        && getUserData().companyId == request.resource.data.companyId
-        && request.resource.data.status == 'Scheduled'
-        && !('reviewedByUid' in request.resource.data)
-        && !('reviewedAt' in request.resource.data)
-        && !('reviewComment' in request.resource.data);
+      allow create: if isAdmin()
+        || isAssignedImplantador(request.resource.data.implementationId)
+        || (
+            isOwnUser(request.resource.data.uid)
+            && getUserData().implementationId == request.resource.data.implementationId
+            && getUserData().companyId == request.resource.data.companyId
+            && request.resource.data.status == 'Scheduled'
+            && !('reviewedByUid' in request.resource.data)
+            && !('reviewedAt' in request.resource.data)
+            && !('reviewComment' in request.resource.data)
+        );
 
       allow update: if isAdmin() 
         || isAssignedImplantador(resource.data.implementationId)
@@ -182,13 +191,11 @@ service cloud.firestore {
             && request.resource.data.uid == resource.data.uid
             && request.resource.data.implementationId == resource.data.implementationId
             && request.resource.data.companyId == resource.data.companyId
-            && request.resource.data.phaseId == resource.data.phaseId
             && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['reviewedByUid', 'reviewedAt', 'reviewComment'])
             && (
-              // Reagendamento ou manter dados básicos
               (resource.data.status == 'Scheduled' && request.resource.data.status == 'WaitingApproval')
-              || (resource.data.status == request.resource.data.status && resource.data.status in ['Scheduled', 'PendingAdjustments'])
               || (resource.data.status == 'PendingAdjustments' && request.resource.data.status == 'Scheduled')
+              || (resource.data.status in ['Scheduled', 'PendingAdjustments'] && request.resource.data.status == resource.data.status)
             )
             && request.resource.data.status != 'Completed'
         );
@@ -202,11 +209,13 @@ service cloud.firestore {
         || (isAuthenticated() && isClientMaster(resource.data.companyId)) 
         || (isAuthenticated() && isOwnUser(resource.data.uid));
         
-      allow write: if isAdmin() 
+      allow create: if isAdmin() 
         || isAssignedImplantador(request.resource.data.implementationId)
         || (isOwnUser(request.resource.data.uid) 
             && belongsToImplementation(request.resource.data.implementationId)
             && belongsToCompany(request.resource.data.companyId));
+
+      allow update: if isAdmin() || isAssignedImplantador(resource.data.implementationId);
     }
 
     match /implantadorNotes/{noteId} {
@@ -216,7 +225,6 @@ service cloud.firestore {
       allow write: if isAdmin() || isAssignedImplantador(request.resource.data.implementationId);
     }
 
-    // --- Deny padrão para qualquer outra coleção não mapeada ---
     match /{document=**} {
       allow read, write: if false;
     }

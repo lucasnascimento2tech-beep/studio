@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -57,7 +58,8 @@ export function useJourneyStore() {
   // 1. Efeito de Inicialização (Fase 0)
   useEffect(() => {
     if (!user?.uid || !user?.implementationId) return;
-    if (['admin_2tech', 'implantador', 'client_pending'].includes(user.globalRole)) return;
+    const role = user.globalRole;
+    if (['admin_2tech', 'implantador', 'client_pending'].includes(role)) return;
 
     const db = getFirestore();
     const initFirstPhase = async () => {
@@ -83,11 +85,7 @@ export function useJourneyStore() {
 
   // 2. Listener: moduleProgress
   useEffect(() => {
-    if (!user?.uid || !user?.implementationId) {
-      setLoadedSections(prev => ({ ...prev, modules: true }));
-      return;
-    }
-    if (['admin_2tech', 'implantador', 'client_pending'].includes(user.globalRole)) {
+    if (!user?.uid || !user?.implementationId || ['admin_2tech', 'implantador', 'client_pending'].includes(user.globalRole)) {
       setLoadedSections(prev => ({ ...prev, modules: true }));
       return;
     }
@@ -106,43 +104,27 @@ export function useJourneyStore() {
 
       snapshot.docs.forEach(d => {
         const data = d.data();
-        if (data.status === 'completed') {
-          completedModules.push(data.moduleId);
-        }
-        if (data.validationAnswer) {
-          validationAnswers[data.moduleId] = data.validationAnswer;
-        }
+        if (data.status === 'completed') completedModules.push(data.moduleId);
+        if (data.validationAnswer) validationAnswers[data.moduleId] = data.validationAnswer;
         if (data.evidenceStatus) {
           uploadedEvidence[data.moduleId] = { 
             name: data.fileName || 'Arquivo',
             status: data.evidenceStatus,
-            implantadorComment: data.implantadorComment || data.reviewComment || ""
+            implantadorComment: data.reviewComment || ""
           };
         }
       });
 
-      setProgress(prev => ({
-        ...prev,
-        completedModules,
-        uploadedEvidence,
-        validationAnswers
-      }));
+      setProgress(prev => ({ ...prev, completedModules, uploadedEvidence, validationAnswers }));
       setLoadedSections(prev => ({ ...prev, modules: true }));
-    }, (error) => {
-      console.error("Error listening to modules:", error);
-      setLoadedSections(prev => ({ ...prev, modules: true }));
-    });
+    }, () => setLoadedSections(prev => ({ ...prev, modules: true })));
 
     return () => unsubscribe();
   }, [user?.uid, user?.implementationId, user?.globalRole]);
 
   // 3. Listener: phaseProgress
   useEffect(() => {
-    if (!user?.uid || !user?.implementationId) {
-      setLoadedSections(prev => ({ ...prev, phases: true }));
-      return;
-    }
-    if (['admin_2tech', 'implantador', 'client_pending'].includes(user.globalRole)) {
+    if (!user?.uid || !user?.implementationId || ['admin_2tech', 'implantador', 'client_pending'].includes(user.globalRole)) {
       setLoadedSections(prev => ({ ...prev, phases: true }));
       return;
     }
@@ -161,26 +143,16 @@ export function useJourneyStore() {
         phaseStatus[data.phaseId] = data.status;
       });
 
-      setProgress(prev => ({
-        ...prev,
-        phaseStatus
-      }));
+      setProgress(prev => ({ ...prev, phaseStatus }));
       setLoadedSections(prev => ({ ...prev, phases: true }));
-    }, (error) => {
-      console.error("Error listening to phases:", error);
-      setLoadedSections(prev => ({ ...prev, phases: true }));
-    });
+    }, () => setLoadedSections(prev => ({ ...prev, phases: true })));
 
     return () => unsubscribe();
   }, [user?.uid, user?.implementationId, user?.globalRole]);
 
   // 4. Listener: meetings
   useEffect(() => {
-    if (!user?.uid || !user?.implementationId) {
-      setLoadedSections(prev => ({ ...prev, meetings: true }));
-      return;
-    }
-    if (['admin_2tech', 'implantador', 'client_pending'].includes(user.globalRole)) {
+    if (!user?.uid || !user?.implementationId || ['admin_2tech', 'implantador', 'client_pending'].includes(user.globalRole)) {
       setLoadedSections(prev => ({ ...prev, meetings: true }));
       return;
     }
@@ -201,24 +173,18 @@ export function useJourneyStore() {
           scheduledDate: data.scheduledDate,
           scheduledTime: data.scheduledTime,
           notes: data.notes,
-          implantadorComment: data.implantadorComment || data.reviewComment || ""
+          implantadorComment: data.reviewComment || ""
         };
       });
 
-      setProgress(prev => ({
-        ...prev,
-        meetingStatus
-      }));
+      setProgress(prev => ({ ...prev, meetingStatus }));
       setLoadedSections(prev => ({ ...prev, meetings: true }));
-    }, (error) => {
-      console.error("Error listening to meetings:", error);
-      setLoadedSections(prev => ({ ...prev, meetings: true }));
-    });
+    }, () => setLoadedSections(prev => ({ ...prev, meetings: true })));
 
     return () => unsubscribe();
   }, [user?.uid, user?.implementationId, user?.globalRole]);
 
-  // --- Funções de Escrita e Ação (API Pública) ---
+  // --- Funções de Escrita ---
 
   const unlockNextPhaseForUser = async (targetUid: string, targetImplId: string, targetCompId: string, currentPhaseId: string) => {
     const db = getFirestore();
@@ -231,9 +197,9 @@ export function useJourneyStore() {
       const nextPhaseSnap = await getDoc(nextPhaseRef);
       
       const existingStatus = nextPhaseSnap.exists() ? nextPhaseSnap.data().status : null;
-      const nonOverwritableStatuses = ['Completed', 'Scheduled', 'WaitingApproval', 'PendingAdjustments', 'ReadyToSchedule'];
+      const protectedStatuses = ['Completed', 'Scheduled', 'WaitingApproval', 'PendingAdjustments', 'ReadyToSchedule'];
       
-      if (!nextPhaseSnap.exists() || !nonOverwritableStatuses.includes(existingStatus)) {
+      if (!nextPhaseSnap.exists() || !protectedStatuses.includes(existingStatus)) {
         await setDoc(nextPhaseRef, {
           uid: targetUid,
           implementationId: targetImplId,
@@ -279,9 +245,9 @@ export function useJourneyStore() {
     const percent = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 100;
 
     let newStatus = currentStatus;
-    const nonReversibleStatuses = ['ReadyToSchedule', 'Scheduled', 'WaitingApproval', 'Completed', 'PendingAdjustments'];
+    const nonReversible = ['ReadyToSchedule', 'Scheduled', 'WaitingApproval', 'Completed', 'PendingAdjustments'];
 
-    if (!nonReversibleStatuses.includes(currentStatus)) {
+    if (!nonReversible.includes(currentStatus)) {
       newStatus = isDone ? "WaitingCheckpoint" : "InProgress";
     }
 
@@ -364,18 +330,7 @@ export function useJourneyStore() {
       }, { merge: true });
 
       if (!phase?.hasMeeting) {
-        const currentIndex = journeyPhases.findIndex(p => p.id === phaseId);
-        const nextPhase = journeyPhases[currentIndex + 1];
-        if (nextPhase) {
-           await setDoc(doc(db, "phaseProgress", getPhaseProgressId(nextPhase.id)), {
-             uid: user.uid,
-             implementationId: user.implementationId,
-             companyId: user.companyId,
-             phaseId: nextPhase.id,
-             status: "InProgress",
-             updatedAt: serverTimestamp()
-           }, { merge: true });
-        }
+        await unlockNextPhaseForUser(user.uid, user.implementationId, user.companyId || "", phaseId);
       }
     }
   };
