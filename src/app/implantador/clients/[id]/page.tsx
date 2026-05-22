@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getFirestore, doc, onSnapshot, collection, query, where, updateDoc, serverTimestamp } from "firebase/firestore";
+import { getFirestore, doc, onSnapshot, collection, query, where, updateDoc, serverTimestamp, getDoc, setDoc } from "firebase/firestore";
 import { useUser } from "@/firebase";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { 
   ArrowLeft, FileText, 
-  ShieldCheck, ExternalLink, Users, Clock, CheckCircle2
+  ShieldCheck, ExternalLink, Users, Clock, CheckCircle2, Calendar, AlertTriangle
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -31,8 +31,11 @@ export default function ClientDetailSpecialistPage() {
   const [implementation, setImplementation] = useState<any>(null);
   const [members, setMembers] = useState<any[]>([]);
   const [allModuleProgress, setAllModuleProgress] = useState<any[]>([]);
+  const [allMeetings, setAllMeetings] = useState<any[]>([]);
+  const [allPhaseProgress, setAllPhaseProgress] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [reviewNote, setReviewNote] = useState<Record<string, string>>({});
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     if (!implementationId) return;
@@ -50,6 +53,16 @@ export default function ClientDetailSpecialistPage() {
     const qProg = query(collection(db, "moduleProgress"), where("implementationId", "==", implementationId));
     const unsubscribeProg = onSnapshot(qProg, (snap) => {
       setAllModuleProgress(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    const qPhases = query(collection(db, "phaseProgress"), where("implementationId", "==", implementationId));
+    const unsubscribePhases = onSnapshot(qPhases, (snap) => {
+      setAllPhaseProgress(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    const qMeetings = query(collection(db, "meetings"), where("implementationId", "==", implementationId));
+    const unsubscribeMeetings = onSnapshot(qMeetings, (snap) => {
+      setAllMeetings(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoading(false);
     });
 
@@ -57,25 +70,79 @@ export default function ClientDetailSpecialistPage() {
       unsubscribeImpl();
       unsubscribeMembers();
       unsubscribeProg();
+      unsubscribePhases();
+      unsubscribeMeetings();
     };
   }, [implementationId, db, router]);
 
-  const handleReviewEvidence = async (evidenceId: string, status: 'approved' | 'adjustment_requested') => {
-    const note = reviewNote[evidenceId] || (status === 'approved' ? 'Aprovado após revisão.' : 'Necessário ajuste no anexo.');
+  const handleApproveMeeting = async (meeting: any) => {
+    setIsProcessing(true);
+    const note = reviewNote[meeting.id] || "Encontro realizado e etapa aprovada.";
     
     try {
-      await updateDoc(doc(db, "moduleProgress", evidenceId), {
-        evidenceStatus: status,
+      // 1. Atualiza Meeting
+      await updateDoc(doc(db, "meetings", meeting.id), {
+        status: "Completed",
         implantadorComment: note,
-        reviewedAt: serverTimestamp(),
-        reviewedByUid: user?.uid
+        approvedAt: serverTimestamp(),
+        approvedByUid: user?.uid
       });
-      toast({ 
-        title: status === 'approved' ? "Evidência Aprovada" : "Ajuste Solicitado", 
-        description: "A resposta foi enviada para o cliente." 
+
+      // 2. Atualiza PhaseProgress do usuário
+      await updateDoc(doc(db, "phaseProgress", `${meeting.uid}_${meeting.phaseId}`), {
+        status: "Completed",
+        completedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
       });
+
+      // 3. Libera próxima fase individual
+      const currentIndex = journeyPhases.findIndex(p => p.id === meeting.phaseId);
+      const nextPhase = journeyPhases[currentIndex + 1];
+      if (nextPhase) {
+        await setDoc(doc(db, "phaseProgress", `${meeting.uid}_${nextPhase.id}`), {
+          uid: meeting.uid,
+          implementationId: meeting.implementationId,
+          companyId: meeting.companyId,
+          phaseId: nextPhase.id,
+          status: "InProgress",
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      }
+
+      toast({ title: "Etapa Aprovada!", description: "O usuário já pode avançar na jornada." });
     } catch (e) {
-      toast({ variant: "destructive", title: "Erro", description: "Falha ao salvar avaliação." });
+      toast({ variant: "destructive", title: "Erro", description: "Falha ao processar aprovação." });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleRequestAdjustments = async (meeting: any) => {
+    setIsProcessing(true);
+    const note = reviewNote[meeting.id];
+    if (!note) {
+      toast({ title: "Comentário Necessário", description: "Explique o que precisa ser ajustado.", variant: "destructive" });
+      setIsProcessing(false);
+      return;
+    }
+
+    try {
+      await updateDoc(doc(db, "meetings", meeting.id), {
+        status: "PendingAdjustments",
+        implantadorComment: note,
+        updatedAt: serverTimestamp()
+      });
+
+      await updateDoc(doc(db, "phaseProgress", `${meeting.uid}_${meeting.phaseId}`), {
+        status: "PendingAdjustments",
+        updatedAt: serverTimestamp()
+      });
+
+      toast({ title: "Ajuste Solicitado", description: "O usuário foi notificado." });
+    } catch (e) {
+      toast({ variant: "destructive", title: "Erro", description: "Falha ao solicitar ajuste." });
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -85,7 +152,7 @@ export default function ClientDetailSpecialistPage() {
     </div>
   );
 
-  const pendingEvidences = allModuleProgress.filter(e => e.evidenceStatus === 'submitted');
+  const pendingMeetings = allMeetings.filter(m => m.status === 'Scheduled' || m.status === 'WaitingApproval');
 
   return (
     <AuthGuard allowedRoles={['implantador', 'admin_2tech']}>
@@ -110,9 +177,9 @@ export default function ClientDetailSpecialistPage() {
                 <ShieldCheck className="w-10 h-10" />
               </div>
               <div>
-                <h2 className="text-3xl font-headline font-bold text-slate-900">Empresa Cliente</h2>
+                <h2 className="text-3xl font-headline font-bold text-slate-900">Dashboard do Cliente</h2>
                 <div className="flex flex-wrap gap-2 mt-2">
-                  <Badge className="bg-blue-600">Fase Atual: {implementation?.currentPhaseId || 'Preparação'}</Badge>
+                  <Badge className="bg-blue-600">Gestão Individualizada</Badge>
                   <Badge variant="outline" className="border-primary text-primary font-bold">{implementation?.status?.replace('_', ' ')}</Badge>
                   <Badge variant="secondary" className="bg-slate-100 text-slate-500">{members.length} Participantes</Badge>
                 </div>
@@ -123,26 +190,19 @@ export default function ClientDetailSpecialistPage() {
           <Tabs defaultValue="team" className="space-y-6">
             <TabsList className="bg-white border p-1 h-14 rounded-2xl shadow-sm">
               <TabsTrigger value="team" className="px-8 h-12 rounded-xl font-bold data-[state=active]:bg-primary data-[state=active]:text-white">
-                Equipe & Progresso Individual
+                Equipe & Status Individual
               </TabsTrigger>
-              <TabsTrigger value="evidences" className="px-8 h-12 rounded-xl font-bold data-[state=active]:bg-primary data-[state=active]:text-white">
-                Evidências Pendentes ({pendingEvidences.length})
+              <TabsTrigger value="meetings" className="px-8 h-12 rounded-xl font-bold data-[state=active]:bg-primary data-[state=active]:text-white">
+                Encontros p/ Validar ({pendingMeetings.length})
               </TabsTrigger>
             </TabsList>
 
             <TabsContent value="team">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {members.map(member => {
-                  const mProg = allModuleProgress.filter(p => p.uid === (member.uid || member.email));
-                  const completedModulesCount = mProg.filter(p => p.status === 'completed').length;
+                  const mPhases = allPhaseProgress.filter(p => p.uid === (member.uid || member.email));
+                  const currentPhase = mPhases.find(p => p.status !== 'Completed' && p.status !== 'Locked') || { phaseId: 'Início', status: 'Início', progressPercent: 0 };
                   
-                  // Heurística de progresso baseada na fase atual e áreas do usuário
-                  const currentPhase = journeyPhases.find(p => p.id === implementation?.currentPhaseId) || journeyPhases[0];
-                  const mAreas = member.areas || ['todos'];
-                  const reqInPhase = currentPhase.modules.filter(m => m.isRequired && (mAreas.includes(m.area) || mAreas.includes('todos'))).length;
-                  const doneInPhase = mProg.filter(p => p.phaseId === currentPhase.id && p.status === 'completed').length;
-                  const perc = reqInPhase > 0 ? Math.round((doneInPhase / reqInPhase) * 100) : (completedModulesCount > 0 ? 100 : 0);
-
                   return (
                     <Card key={member.id} className="border-none shadow-md overflow-hidden bg-white hover:shadow-lg transition-all">
                       <CardHeader className="pb-2">
@@ -157,25 +217,18 @@ export default function ClientDetailSpecialistPage() {
                         </div>
                       </CardHeader>
                       <CardContent className="space-y-4">
-                        <div className="flex justify-between text-xs">
-                          <span className="text-slate-400 font-bold uppercase">Progresso na Fase</span>
-                          <span className="font-bold text-primary">{perc}%</span>
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-slate-400 font-bold uppercase">Status Atual</span>
+                          <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700">{currentPhase.status}</Badge>
                         </div>
-                        <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                          <div className={cn("h-full transition-all", perc === 100 ? "bg-green-500" : "bg-primary")} style={{ width: `${perc}%` }} />
+                        <div className="space-y-1">
+                           <p className="text-[10px] font-bold text-slate-500">FASE: {currentPhase.phaseId}</p>
+                           <Progress value={currentPhase.progressPercent || 0} className="h-1.5" />
                         </div>
                         <div className="flex flex-wrap gap-1">
-                          {mAreas.map(a => (
+                          {member.areas?.map((a: string) => (
                             <Badge key={a} variant="secondary" className="text-[9px] bg-slate-50 text-slate-500">{a}</Badge>
                           ))}
-                        </div>
-                        <div className="pt-2 border-t flex justify-between items-center text-[10px]">
-                          <span className="text-slate-400">Total Módulos Concluídos: <strong>{completedModulesCount}</strong></span>
-                          {perc === 100 ? (
-                            <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-none px-2 py-0">Pronto</Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-slate-400 px-2 py-0">Em Jornada</Badge>
-                          )}
                         </div>
                       </CardContent>
                     </Card>
@@ -184,65 +237,73 @@ export default function ClientDetailSpecialistPage() {
               </div>
             </TabsContent>
 
-            <TabsContent value="evidences">
+            <TabsContent value="meetings">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {pendingEvidences.length === 0 ? (
+                {pendingMeetings.length === 0 ? (
                   <Card className="col-span-full py-20 text-center border-dashed border-2">
-                    <FileText className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-                    <p className="text-slate-500 font-medium">Nenhuma evidência aguardando revisão.</p>
+                    <Calendar className="w-12 h-12 text-slate-200 mx-auto mb-4" />
+                    <p className="text-slate-500 font-medium">Nenhum encontro aguardando validação.</p>
                   </Card>
                 ) : (
-                  pendingEvidences.map(evidence => (
-                    <Card key={evidence.id} className="border-none shadow-md overflow-hidden bg-white">
-                      <div className="p-6 space-y-4">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <Badge variant="outline" className="mb-2 uppercase text-[10px] font-bold text-slate-400">
-                              Módulo: {evidence.moduleId}
-                            </Badge>
-                            <h4 className="font-bold text-slate-900">De: {members.find(m => (m.uid === evidence.uid || m.email === evidence.uid))?.name || 'Membro'}</h4>
-                          </div>
-                          <Badge variant="secondary" className="bg-orange-100 text-orange-700">Aguardando Revisão</Badge>
-                        </div>
-
-                        {evidence.fileName && (
-                          <div className="flex items-center justify-between p-3 bg-blue-50/50 rounded-lg border border-blue-100">
-                            <div className="flex items-center gap-3 overflow-hidden">
-                              <FileText className="w-5 h-5 text-blue-600 shrink-0" />
-                              <span className="text-xs font-medium text-blue-800 truncate">{evidence.fileName}</span>
+                  pendingMeetings.map(meet => {
+                    const member = members.find(m => m.uid === meet.uid);
+                    return (
+                      <Card key={meet.id} className="border-none shadow-md overflow-hidden bg-white">
+                        <div className="p-6 space-y-4">
+                          <div className="flex justify-between items-start">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600">
+                                <Calendar className="w-6 h-6" />
+                              </div>
+                              <div>
+                                <h4 className="font-bold text-slate-900">{member?.name || 'Membro'}</h4>
+                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{meet.phaseId}</p>
+                              </div>
                             </div>
-                            <Button variant="ghost" size="sm" className="h-8 text-blue-700 font-bold">
-                              Ver <ExternalLink className="w-3 h-3 ml-1" />
-                            </Button>
+                            <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100 border-none">Agendado: {meet.scheduledDate}</Badge>
                           </div>
-                        )}
 
-                        <div className="space-y-4 pt-4 border-t">
-                          <Textarea 
-                            placeholder="Adicionar um comentário para o cliente..." 
-                            className="text-xs min-h-[80px]"
-                            value={reviewNote[evidence.id] || ""}
-                            onChange={(e) => setReviewNote({...reviewNote, [evidence.id]: e.target.value})}
-                          />
-                          <div className="grid grid-cols-2 gap-3">
-                            <Button 
-                              variant="outline" 
-                              className="text-red-600 border-red-200 hover:bg-red-50 font-bold"
-                              onClick={() => handleReviewEvidence(evidence.id, 'adjustment_requested')}
-                            >
-                              Solicitar Ajuste
-                            </Button>
-                            <Button 
-                              className="bg-green-600 hover:bg-green-700 text-white font-bold"
-                              onClick={() => handleReviewEvidence(evidence.id, 'approved')}
-                            >
-                              Aprovar Evidência
-                            </Button>
+                          <div className="bg-slate-50 p-4 rounded-xl space-y-2 border">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-slate-400 font-bold">HORÁRIO</span>
+                              <span className="font-bold text-slate-700">{meet.scheduledTime}</span>
+                            </div>
+                            <div className="pt-2 border-t">
+                              <p className="text-[10px] text-slate-400 font-bold mb-1 uppercase">Observações do Cliente:</p>
+                              <p className="text-xs italic text-slate-600">"{meet.notes || 'Nenhuma observação enviada.'}"</p>
+                            </div>
+                          </div>
+
+                          <div className="space-y-3 pt-2">
+                            <Label className="text-xs font-bold text-slate-500">Parecer do Implantador</Label>
+                            <Textarea 
+                              placeholder="Adicione um comentário ou detalhe o que precisa de ajuste..." 
+                              className="text-xs min-h-[80px]"
+                              value={reviewNote[meet.id] || ""}
+                              onChange={(e) => setReviewNote({...reviewNote, [meet.id]: e.target.value})}
+                            />
+                            <div className="grid grid-cols-2 gap-3">
+                              <Button 
+                                variant="outline" 
+                                className="text-red-600 border-red-200 hover:bg-red-50 font-bold h-10"
+                                onClick={() => handleRequestAdjustments(meet)}
+                                disabled={isProcessing}
+                              >
+                                Solicitar Ajuste
+                              </Button>
+                              <Button 
+                                className="bg-green-600 hover:bg-green-700 text-white font-bold h-10 shadow-lg shadow-green-100"
+                                onClick={() => handleApproveMeeting(meet)}
+                                disabled={isProcessing}
+                              >
+                                Aprovar Etapa
+                              </Button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </Card>
-                  ))
+                      </Card>
+                    );
+                  })
                 )}
               </div>
             </TabsContent>
