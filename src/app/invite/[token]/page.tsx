@@ -60,16 +60,13 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
           setInvite("expired");
         } else {
           setInvite(inviteData);
-          // Prefer use companyName from invite (publicly available)
           if (inviteData.companyName) {
             setCompanyName(inviteData.companyName);
           } else if (inviteData.companyId) {
-            // Fallback for older invites (might fail if logged out)
             try {
               const compSnap = await getDoc(doc(db, "companies", inviteData.companyId));
               if (compSnap.exists()) setCompanyName(compSnap.data().name);
             } catch (e) {
-              console.log("Could not fetch company details publicly, showing placeholder.");
               setCompanyName("Empresa em Implantação");
             }
           }
@@ -134,7 +131,16 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
       toast({ title: "Conta criada!", description: "Sua jornada começa agora." });
       router.push("/");
     } catch (error: any) {
-      toast({ variant: "destructive", title: "Erro ao criar conta", description: error.message });
+      if (error.code === 'auth/email-already-in-use') {
+        toast({ 
+          variant: "destructive", 
+          title: "E-mail já em uso", 
+          description: "Você já possui uma conta com este e-mail. Por favor, use a aba 'Já tenho acesso' para entrar e vincular este convite." 
+        });
+        setMode('existing');
+      } else {
+        toast({ variant: "destructive", title: "Erro ao criar conta", description: error.message });
+      }
     } finally {
       setSubmitting(false);
     }
@@ -142,8 +148,8 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
 
   const handleAcceptExisting = async () => {
     if (!currentUser) {
-      toast({ title: "Login Necessário", description: "Faça login com sua conta existente para vincular o acesso." });
-      router.push("/login?redirect=" + encodeURIComponent(window.location.pathname));
+      const redirectPath = encodeURIComponent(window.location.pathname);
+      router.push(`/login?redirect=${redirectPath}`);
       return;
     }
 
@@ -233,7 +239,7 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
           </Card>
 
           <Card className="border-none shadow-lg overflow-hidden">
-            <Tabs defaultValue="create" className="w-full" onValueChange={(v) => setMode(v as any)}>
+            <Tabs value={mode} className="w-full" onValueChange={(v) => setMode(v as any)}>
               <CardHeader className="p-0">
                 <TabsList className="grid w-full grid-cols-2 rounded-none h-12">
                   <TabsTrigger value="create" className="text-xs h-full">Nova Conta</TabsTrigger>
@@ -277,7 +283,10 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
                       {submitting ? "Vinculando..." : "Vincular a esta conta"}
                     </Button>
                   ) : (
-                    <Button variant="outline" onClick={() => router.push("/login?redirect=" + encodeURIComponent(window.location.pathname))} className="w-full h-12 font-bold">
+                    <Button variant="outline" onClick={() => {
+                      const redirectPath = encodeURIComponent(window.location.pathname);
+                      router.push(`/login?redirect=${redirectPath}`);
+                    }} className="w-full h-12 font-bold">
                       <LogIn className="w-4 h-4 mr-2" /> Fazer Login Primeiro
                     </Button>
                   )}
