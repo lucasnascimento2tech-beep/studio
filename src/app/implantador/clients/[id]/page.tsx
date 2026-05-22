@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getFirestore, doc, onSnapshot, collection, query, where, updateDoc, serverTimestamp, getDocs } from "firebase/firestore";
+import { getFirestore, doc, onSnapshot, collection, query, where, updateDoc, serverTimestamp } from "firebase/firestore";
 import { useUser } from "@/firebase";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -13,13 +13,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { 
-  ArrowLeft, CheckCircle2, XCircle, Clock, FileText, 
-  Users, MessageSquare, ShieldCheck, Calendar, ExternalLink,
-  ChevronRight, AlertCircle
+  ArrowLeft, FileText, 
+  ShieldCheck, ExternalLink
 } from "lucide-react";
 import Link from "next/link";
-import { journeyPhases } from "@/data/journeyData";
 import { cn } from "@/lib/utils";
+import { UserNav } from "@/components/layout/UserNav";
 
 export default function ClientDetailSpecialistPage() {
   const { id: implementationId } = useParams();
@@ -92,14 +91,17 @@ export default function ClientDetailSpecialistPage() {
   return (
     <AuthGuard allowedRoles={['implantador', 'admin_2tech']}>
       <div className="min-h-screen bg-slate-50 pb-20">
-        <nav className="bg-slate-900 text-white py-4 px-8 flex items-center gap-6 sticky top-0 z-30 shadow-md">
-          <Button variant="ghost" size="icon" asChild className="text-white hover:bg-white/10">
-            <Link href="/implantador"><ArrowLeft className="w-5 h-5" /></Link>
-          </Button>
-          <div>
-            <h1 className="font-bold text-lg leading-none">Gestão de Cliente</h1>
-            <p className="text-xs text-slate-400 mt-1 uppercase tracking-widest font-bold">Ref: {implementation?.id.substring(0,8)}</p>
+        <nav className="bg-slate-900 text-white py-4 px-8 flex justify-between items-center sticky top-0 z-30 shadow-md">
+          <div className="flex items-center gap-6">
+            <Button variant="ghost" size="icon" asChild className="text-white hover:bg-white/10">
+              <Link href="/implantador"><ArrowLeft className="w-5 h-5" /></Link>
+            </Button>
+            <div>
+              <h1 className="font-bold text-lg leading-none">Gestão de Cliente</h1>
+              <p className="text-xs text-slate-400 mt-1 uppercase tracking-widest font-bold">Ref: {implementation?.id.substring(0,8)}</p>
+            </div>
           </div>
+          <UserNav user={user} />
         </nav>
 
         <main className="max-w-7xl mx-auto p-6 md:p-8 space-y-8">

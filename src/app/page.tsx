@@ -9,12 +9,12 @@ import { ProgressHeader } from "@/components/journey/ProgressHeader";
 import { PhaseCard } from "@/components/journey/PhaseCard";
 import { MeetingUnlockStatusCard } from "@/components/journey/MeetingUnlockStatusCard";
 import { Button } from "@/components/ui/button";
-import { Settings, Info, Trophy, Rocket, LogOut, User, Users, Shield, UserPlus } from "lucide-react";
+import { Settings, Info, Trophy, Rocket, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { ProgressState, PhaseStatus, ImplementationMember } from "@/types/journey";
-import { getAuth, signOut } from "firebase/auth";
 import { useRouter } from "next/navigation";
+import { UserNav } from "@/components/layout/UserNav";
 
 export default function Home() {
   const { user, loading: authLoading } = useUser();
@@ -44,7 +44,6 @@ export default function Home() {
 
     const db = getFirestore();
     
-    // 1. Escutar progresso de todos os membros (para o Master ver o status coletivo)
     const progressQuery = query(
       collection(db, "moduleProgress"), 
       where("implementationId", "==", user.implementationId)
@@ -69,7 +68,6 @@ export default function Home() {
 
       setMemberProgress(allProg);
 
-      // Mapeamento básico de status de fase (Simplificado para MVP)
       const phaseStatus: Record<string, PhaseStatus> = {};
       journeyPhases.forEach((p, idx) => {
         if (idx === 0) phaseStatus[p.id] = 'InProgress';
@@ -86,7 +84,6 @@ export default function Home() {
       });
     });
 
-    // 2. Escutar lista de membros
     const membersQuery = query(
       collection(db, "implementationMembers"),
       where("implementationId", "==", user.implementationId)
@@ -102,10 +99,6 @@ export default function Home() {
       unsubMembers();
     };
   }, [user, authLoading, router]);
-
-  const handleLogout = () => {
-    signOut(getAuth());
-  };
 
   if (authLoading || loading) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -133,19 +126,13 @@ export default function Home() {
             <span className="font-bold text-xl tracking-tight">2tech</span>
             <span className="text-white/40 text-xs hidden md:inline font-medium uppercase tracking-widest">| Portal do Cliente</span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
             {user?.globalRole === 'client_master' && (
               <Button variant="default" size="sm" asChild className="bg-secondary text-primary font-bold hover:bg-secondary/80 hidden md:flex">
                 <Link href="/app/participants"><UserPlus className="w-4 h-4 mr-2" /> Gerenciar Equipe</Link>
               </Button>
             )}
-            <div className="flex items-center gap-2 bg-white/10 px-3 py-1.5 rounded-full border border-white/5">
-              <User className="w-4 h-4 text-primary" />
-              <span className="text-xs font-bold">{user?.name}</span>
-            </div>
-            <Button variant="ghost" size="icon" onClick={handleLogout} className="text-white/70 hover:text-white hover:bg-red-500/20">
-              <LogOut className="w-5 h-5" />
-            </Button>
+            <UserNav user={user} />
           </div>
         </nav>
 
@@ -174,7 +161,6 @@ export default function Home() {
                 </Button>
               </div>
 
-              {/* Card de Desbloqueio de Encontro (Exibido para o Master) */}
               {nextPhase.hasMeeting && (
                 <MeetingUnlockStatusCard 
                   phase={nextPhase}
@@ -197,11 +183,10 @@ export default function Home() {
             ))}
           </div>
 
-          {/* Botão Flutuante de Suporte ou Gestão para Mobile */}
           <div className="md:hidden fixed bottom-6 right-6 flex flex-col gap-3">
             {user?.globalRole === 'client_master' && (
               <Button size="icon" className="w-14 h-14 rounded-full shadow-2xl bg-secondary text-primary" asChild>
-                <Link href="/app/participants"><Users className="w-6 h-6" /></Link>
+                <Link href="/app/participants"><UserPlus className="w-6 h-6" /></Link>
               </Button>
             )}
           </div>

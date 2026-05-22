@@ -9,11 +9,11 @@ import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/componen
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Users, CheckCircle, Clock, Search, MessageSquare, Loader2, LogOut } from "lucide-react";
+import { Users, CheckCircle, Clock, Search, MessageSquare, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import Link from "next/link";
 import { AccessRequestsTab } from "./access-requests/AccessRequestsTab";
-import { getAuth, signOut } from "firebase/auth";
+import { UserNav } from "@/components/layout/UserNav";
 
 export default function ImplantadorPage() {
   const { user } = useUser();
@@ -30,7 +30,6 @@ export default function ImplantadorPage() {
     setIsMounted(true);
     if (!user?.uid) return;
     
-    // 1. Escutar empresas para ter o mapa de nomes
     const unsubscribeCompanies = onSnapshot(collection(db, "companies"), (snap) => {
       const companyMap: Record<string, string> = {};
       snap.docs.forEach(doc => {
@@ -39,7 +38,6 @@ export default function ImplantadorPage() {
       setCompanies(companyMap);
     });
 
-    // 2. Escutar implantações DESIGNADAS APENAS para este implantador (ou todas se for admin)
     let qImpl;
     if (user.globalRole === 'admin_2tech') {
       qImpl = query(collection(db, "implementations"));
@@ -59,7 +57,6 @@ export default function ImplantadorPage() {
       setLoading(false);
     });
 
-    // 3. Contagem de solicitações pendentes (isso todos os implantadores podem ver para "escolher" clientes)
     const qRequests = query(collection(db, "accessRequests"), where("status", "==", "pending"));
     const unsubscribeRequests = onSnapshot(qRequests, (snapshot) => {
       setPendingRequestsCount(snapshot.size);
@@ -71,10 +68,6 @@ export default function ImplantadorPage() {
       unsubscribeRequests();
     };
   }, [db, user]);
-
-  const handleLogout = () => {
-    signOut(getAuth());
-  };
 
   if (!isMounted) return null;
 
@@ -96,13 +89,8 @@ export default function ImplantadorPage() {
               <span className="text-[10px] text-blue-400 font-bold uppercase tracking-widest">Minha Gestão</span>
             </div>
           </div>
-          <div className="flex gap-4">
-            <Button variant="ghost" size="icon" onClick={handleLogout} className="text-white/70 hover:text-white hover:bg-red-500/20">
-              <LogOut className="w-5 h-5" />
-            </Button>
-            <div className="w-10 h-10 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center font-bold">
-              {user?.name?.charAt(0) || "A"}
-            </div>
+          <div className="flex items-center gap-4">
+            <UserNav user={user} />
           </div>
         </nav>
 
