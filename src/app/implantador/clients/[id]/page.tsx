@@ -30,6 +30,7 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useJourneyStore } from "@/hooks/useJourneyStore";
 import { canAccessModule } from "@/utils/permissions";
+import { isPhaseReadyForCheckpoint } from "@/utils/journeyProgress";
 
 export default function ClientDetailPage() {
   const { id: implementationId } = useParams();
@@ -495,7 +496,7 @@ export default function ClientDetailPage() {
               </div>
             </TabsContent>
 
-            {/* ABA: PROGRESSO (NOVA) */}
+            {/* ABA: PROGRESSO */}
             <TabsContent value="progress" className="space-y-6">
               {members.filter(m => m.active && m.uid).map(member => {
                 const userAreas = member.areas || [];
@@ -507,9 +508,14 @@ export default function ClientDetailPage() {
                   const completedCount = accessible.filter(m => 
                     allModuleProgress.some(p => p.uid === member.uid && p.moduleId === m.id && p.status === 'completed')
                   ).length;
-                  const phaseStatus = allPhaseProgress.find(p => p.uid === member.uid && p.phaseId === phase.id)?.status || 'Locked';
                   
-                  return { phase, accessible, completedCount, status: phaseStatus };
+                  const dbStatus = allPhaseProgress.find(p => p.uid === member.uid && p.phaseId === phase.id)?.status;
+                  const readyForCheckpoint = isPhaseReadyForCheckpoint(phase, userAreas, role, allModuleProgress.filter(p => p.uid === member.uid).map(p => p.moduleId));
+                  
+                  let displayStatus = dbStatus || (phase.id === 'fase-0' ? 'InProgress' : 'Locked');
+                  if (displayStatus === 'InProgress' && readyForCheckpoint) displayStatus = 'WaitingCheckpoint';
+
+                  return { phase, accessible, completedCount, status: displayStatus };
                 }).filter(p => p.accessible.length > 0);
 
                 const totalAcc = progressByPhase.reduce((acc, curr) => acc + curr.accessible.length, 0);
@@ -546,7 +552,7 @@ export default function ClientDetailPage() {
 
                       <div className="flex items-center gap-4">
                         <Badge variant="secondary" className="text-[10px] h-6 uppercase font-bold tracking-tighter">
-                          {progressByPhase.find(p => p.status !== 'Completed')?.phase.title || 'Concluído'}
+                          {progressByPhase.find(p => p.status !== 'Completed')?.status || 'Concluído'}
                         </Badge>
                         {isExpanded ? <ChevronDown className="w-5 h-5 text-slate-300" /> : <ChevronRight className="w-5 h-5 text-slate-300" />}
                       </div>
@@ -558,7 +564,12 @@ export default function ClientDetailPage() {
                           <div key={p.phase.id} className="space-y-3">
                             <div className="flex justify-between items-center px-1">
                               <h5 className="text-xs font-bold text-slate-700 uppercase tracking-widest">{p.phase.title}</h5>
-                              <Badge variant="outline" className="text-[9px] bg-white">{p.status}</Badge>
+                              <Badge variant="outline" className={cn(
+                                "text-[9px] bg-white",
+                                p.status === 'WaitingCheckpoint' && "text-amber-600 border-amber-200 bg-amber-50"
+                              )}>
+                                {p.status === 'WaitingCheckpoint' ? 'Validação Pendente' : p.status}
+                              </Badge>
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                               {p.accessible.map(mod => {

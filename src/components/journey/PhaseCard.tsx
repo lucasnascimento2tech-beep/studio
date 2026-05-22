@@ -16,7 +16,7 @@ const statusConfig: Record<PhaseStatus, { label: string; color: string; icon: an
   Locked: { label: "Bloqueada", color: "bg-gray-200 text-gray-500", icon: Lock },
   NotStarted: { label: "Não iniciada", color: "bg-gray-100 text-gray-600", icon: Clock },
   InProgress: { label: "Em andamento", color: "bg-blue-100 text-blue-700", icon: Clock },
-  WaitingCheckpoint: { label: "Validação pendente", color: "bg-yellow-100 text-yellow-700", icon: ClipboardList },
+  WaitingCheckpoint: { label: "Validação pendente", color: "bg-amber-100 text-amber-700", icon: ClipboardList },
   ReadyToSchedule: { label: "Pronta para agendar", color: "bg-orange-100 text-orange-700", icon: Calendar },
   Scheduled: { label: "Encontro agendado", color: "bg-purple-100 text-purple-700", icon: Calendar },
   WaitingApproval: { label: "Aguardando aprovação", color: "bg-indigo-100 text-indigo-700", icon: Clock },

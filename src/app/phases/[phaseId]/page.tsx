@@ -16,12 +16,22 @@ import { useUser } from "@/firebase";
 import { useCurrentImplementationMember } from "@/hooks/useCurrentImplementationMember";
 import { canAccessModule } from "@/utils/permissions";
 import { AuthGuard } from "@/components/auth/AuthGuard";
+import { useEffect, useState } from "react";
 
 export default function PhaseDetailPage() {
   const { phaseId } = useParams();
   const { user } = useUser();
-  const { progress, isLoaded, scheduleMeeting, markMeetingReadyForApproval } = useJourneyStore();
+  const { progress, isLoaded, scheduleMeeting, markMeetingReadyForApproval, ensureCurrentProgressConsistency } = useJourneyStore();
   const { effectiveAreas, loading: memberLoading } = useCurrentImplementationMember();
+  const [hasSynced, setHasSynced] = useState(false);
+
+  // Sincronização de consistência ao entrar na fase
+  useEffect(() => {
+    if (isLoaded && !memberLoading && !hasSynced && effectiveAreas.length > 0) {
+      ensureCurrentProgressConsistency(effectiveAreas);
+      setHasSynced(true);
+    }
+  }, [isLoaded, memberLoading, hasSynced, effectiveAreas, ensureCurrentProgressConsistency]);
 
   if (!isLoaded || memberLoading) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -90,6 +100,26 @@ export default function PhaseDetailPage() {
             </Card>
           ) : (
             <div className="space-y-10">
+              {status === 'WaitingCheckpoint' && (
+                <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                  <Card className="border-2 border-amber-400 bg-amber-50 shadow-lg shadow-amber-100/50">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-amber-900 font-headline">
+                        <CheckCircle2 className="w-6 h-6 text-amber-600" /> Validação liberada
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <p className="text-sm text-amber-800">
+                        Você concluiu todos os módulos obrigatórios desta fase. Agora responda a validação para liberar a próxima etapa da sua jornada.
+                      </p>
+                      <Button asChild size="lg" className="w-full bg-amber-600 text-white font-bold hover:bg-amber-700 shadow-xl shadow-amber-200">
+                        <Link href={`/phases/${phase.id}/checkpoint`}>Realizar validação agora</Link>
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </section>
+              )}
+
               <section>
                 <h2 className="text-lg font-bold text-primary mb-4 flex items-center gap-2">
                   <ClipboardList className="w-5 h-5" /> Seus módulos de aprendizado
@@ -142,26 +172,6 @@ export default function PhaseDetailPage() {
                 </div>
               </section>
 
-              {status === 'WaitingCheckpoint' && (
-                <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                  <Card className="border-2 border-secondary bg-secondary/5">
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2 text-primary font-headline">
-                        <CheckCircle2 className="w-6 h-6 text-secondary" /> Checkpoint de Validação
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <p className="text-sm text-muted-foreground">
-                        Você concluiu todos os módulos desta fase. Agora, responda a validação para liberar o próximo passo.
-                      </p>
-                      <Button asChild size="lg" className="w-full bg-secondary text-primary font-bold hover:bg-secondary/90">
-                        <Link href={`/phases/${phase.id}/checkpoint`}>Realizar validação agora</Link>
-                      </Button>
-                    </CardContent>
-                  </Card>
-                </section>
-              )}
-
               {(phase.hasMeeting || ['Scheduled', 'WaitingApproval', 'PendingAdjustments', 'ReadyToSchedule'].includes(status)) && (
                 <MeetingStatusCard 
                   phase={phase}
@@ -171,8 +181,6 @@ export default function PhaseDetailPage() {
                     status: status,
                     meeting: progress.meetingStatus[phase.id]
                   }}
-                  userAreas={effectiveAreas}
-                  isClientMaster={user?.globalRole === 'client_master'}
                   onSchedule={(data) => scheduleMeeting(phase.id, data)}
                   onMarkReadyForApproval={(pId) => markMeetingReadyForApproval(pId)}
                 />

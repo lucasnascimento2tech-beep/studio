@@ -1,6 +1,7 @@
+
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ProgressState, PhaseStatus, AreaType } from '@/types/journey';
 import { journeyPhases } from '@/data/journeyData';
 import { 
@@ -16,6 +17,7 @@ import {
   getDoc
 } from 'firebase/firestore';
 import { useUser } from '@/firebase';
+import { getRequiredAccessibleModules, isPhaseReadyForCheckpoint } from '@/utils/journeyProgress';
 
 export function useJourneyStore() {
   const { user } = useUser();
@@ -82,26 +84,25 @@ export function useJourneyStore() {
     initFirstPhase();
   }, [user?.uid, user?.implementationId, user?.globalRole]);
 
-  // 2. Listener: moduleProgress
+  // 2. Listeners
   useEffect(() => {
     if (!user?.uid || !user?.implementationId || ['admin_2tech', 'implantador', 'client_pending'].includes(user.globalRole)) {
-      setLoadedSections(prev => ({ ...prev, modules: true }));
+      setLoadedSections({ modules: true, phases: true, meetings: true });
       return;
     }
 
     const db = getFirestore();
-    const q = query(
+    
+    // Listener Modules
+    const unsubModules = onSnapshot(query(
       collection(db, "moduleProgress"),
       where("implementationId", "==", user.implementationId),
       where("uid", "==", user.uid)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    ), (snap) => {
       const completedModules: string[] = [];
       const uploadedEvidence: Record<string, any> = {};
       const validationAnswers: Record<string, string> = {};
-
-      snapshot.docs.forEach(d => {
+      snap.docs.forEach(d => {
         const data = d.data();
         if (data.status === 'completed') completedModules.push(data.moduleId);
         if (data.validationAnswer) validationAnswers[data.moduleId] = data.validationAnswer;
@@ -113,59 +114,33 @@ export function useJourneyStore() {
           };
         }
       });
-
       setProgress(prev => ({ ...prev, completedModules, uploadedEvidence, validationAnswers }));
-      setLoadedSections(prev => ({ ...prev, modules: true }));
-    }, () => setLoadedSections(prev => ({ ...prev, modules: true })));
+      setLoadedSections(p => ({ ...prev, modules: true }));
+    });
 
-    return () => unsubscribe();
-  }, [user?.uid, user?.implementationId, user?.globalRole]);
-
-  // 3. Listener: phaseProgress
-  useEffect(() => {
-    if (!user?.uid || !user?.implementationId || ['admin_2tech', 'implantador', 'client_pending'].includes(user.globalRole)) {
-      setLoadedSections(prev => ({ ...prev, phases: true }));
-      return;
-    }
-
-    const db = getFirestore();
-    const q = query(
+    // Listener Phases
+    const unsubPhases = onSnapshot(query(
       collection(db, "phaseProgress"),
       where("implementationId", "==", user.implementationId),
       where("uid", "==", user.uid)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    ), (snap) => {
       const phaseStatus: Record<string, PhaseStatus> = {};
-      snapshot.docs.forEach(d => {
+      snap.docs.forEach(d => {
         const data = d.data();
         phaseStatus[data.phaseId] = data.status;
       });
-
       setProgress(prev => ({ ...prev, phaseStatus }));
-      setLoadedSections(prev => ({ ...prev, phases: true }));
-    }, () => setLoadedSections(prev => ({ ...prev, phases: true })));
+      setLoadedSections(p => ({ ...prev, phases: true }));
+    });
 
-    return () => unsubscribe();
-  }, [user?.uid, user?.implementationId, user?.globalRole]);
-
-  // 4. Listener: meetings
-  useEffect(() => {
-    if (!user?.uid || !user?.implementationId || ['admin_2tech', 'implantador', 'client_pending'].includes(user.globalRole)) {
-      setLoadedSections(prev => ({ ...prev, meetings: true }));
-      return;
-    }
-
-    const db = getFirestore();
-    const q = query(
+    // Listener Meetings
+    const unsubMeetings = onSnapshot(query(
       collection(db, "meetings"),
       where("implementationId", "==", user.implementationId),
       where("uid", "==", user.uid)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    ), (snap) => {
       const meetingStatus: Record<string, any> = {};
-      snapshot.docs.forEach(d => {
+      snap.docs.forEach(d => {
         const data = d.data();
         meetingStatus[data.phaseId] = {
           status: data.status,
@@ -175,15 +150,36 @@ export function useJourneyStore() {
           implantadorComment: data.reviewComment || ""
         };
       });
-
       setProgress(prev => ({ ...prev, meetingStatus }));
-      setLoadedSections(prev => ({ ...prev, meetings: true }));
-    }, () => setLoadedSections(prev => ({ ...prev, meetings: true })));
+      setLoadedSections(p => ({ ...prev, meetings: true }));
+    });
 
-    return () => unsubscribe();
+    return () => { unsubModules(); unsubPhases(); unsubMeetings(); };
   }, [user?.uid, user?.implementationId, user?.globalRole]);
 
-  // --- Funções de Escrita ---
+  // Autocorreção de consistência
+  const ensureCurrentProgressConsistency = useCallback(async (effectiveAreas: AreaType[]) => {
+    if (!user?.uid || !user?.implementationId || !isLoaded) return;
+    const db = getFirestore();
+
+    for (const phase of journeyPhases) {
+      const currentStatus = progress.phaseStatus[phase.id] || (phase.id === 'fase-0' ? 'InProgress' : 'Locked');
+      
+      const readyForCheckpoint = isPhaseReadyForCheckpoint(
+        phase, 
+        effectiveAreas, 
+        user.globalRole as any, 
+        progress.completedModules
+      );
+
+      if (readyForCheckpoint && ['InProgress', 'NotStarted', 'Locked'].includes(currentStatus)) {
+        await setDoc(doc(db, "phaseProgress", getPhaseProgressId(phase.id)), {
+          status: "WaitingCheckpoint",
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      }
+    }
+  }, [user, progress.phaseStatus, progress.completedModules, isLoaded]);
 
   const unlockNextPhaseForUser = async (targetUid: string, targetImplId: string, targetCompId: string, currentPhaseId: string) => {
     const db = getFirestore();
@@ -218,22 +214,8 @@ export function useJourneyStore() {
     const phase = journeyPhases.find(p => p.id === phaseId);
     if (!phase) return;
 
-    const accessibleModules = phase.modules.filter(m => 
-      effectiveAreas.includes(m.area) || effectiveAreas.includes('todos')
-    );
-    const requiredModules = accessibleModules.filter(m => m.isRequired);
-
-    const q = query(
-      collection(db, "moduleProgress"),
-      where("uid", "==", user.uid),
-      where("implementationId", "==", user.implementationId),
-      where("phaseId", "==", phaseId),
-      where("status", "==", "completed")
-    );
-    const snap = await getDocs(q);
-    const doneIds = snap.docs.map(d => d.data().moduleId);
-
-    const completedRequiredCount = requiredModules.filter(m => doneIds.includes(m.id)).length;
+    const requiredModules = getRequiredAccessibleModules(phase, effectiveAreas, user.globalRole as any);
+    const completedRequiredCount = requiredModules.filter(m => progress.completedModules.includes(m.id)).length;
     const isDone = requiredModules.length > 0 ? completedRequiredCount === requiredModules.length : true;
     
     const phaseRef = doc(db, "phaseProgress", getPhaseProgressId(phaseId));
@@ -280,6 +262,12 @@ export function useJourneyStore() {
       completedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     }, { merge: true });
+
+    // Adiciona ao estado local imediatamente para o recalculatePhaseProgress usar o valor atualizado
+    setProgress(prev => ({
+      ...prev,
+      completedModules: [...prev.completedModules, moduleId]
+    }));
 
     await recalculatePhaseProgress(phaseId, effectiveAreas);
   };
@@ -450,6 +438,7 @@ export function useJourneyStore() {
     reviewEvidence,
     approveMeeting,
     requestMeetingAdjustments,
-    recalculatePhaseProgress
+    recalculatePhaseProgress,
+    ensureCurrentProgressConsistency
   };
 }

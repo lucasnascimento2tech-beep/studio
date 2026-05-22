@@ -5,14 +5,14 @@ import { ProgressState } from "@/types/journey";
 
 interface ProgressHeaderProps {
   progress: ProgressState;
-  totalModules: number;
-  completedModules: number;
+  totalAccessibleModules: number;
+  completedAccessibleModules: number;
 }
 
-export function ProgressHeader({ progress, totalModules, completedModules }: ProgressHeaderProps) {
+export function ProgressHeader({ progress, totalAccessibleModules, completedAccessibleModules }: ProgressHeaderProps) {
   const completedPhasesCount = journeyPhases.filter(p => progress.phaseStatus[p.id] === 'Completed').length;
   const phasePercentage = Math.round((completedPhasesCount / journeyPhases.length) * 100);
-  const modulePercentage = totalModules > 0 ? Math.round((completedModules / totalModules) * 100) : 0;
+  const modulePercentage = totalAccessibleModules > 0 ? Math.round((completedAccessibleModules / totalAccessibleModules) * 100) : 0;
 
   return (
     <div className="bg-white border-b sticky top-0 z-10 py-6">
@@ -27,7 +27,7 @@ export function ProgressHeader({ progress, totalModules, completedModules }: Pro
             <div className="flex-1 space-y-1.5">
               <div className="flex justify-between text-[11px] font-bold uppercase tracking-wider text-slate-500">
                 <span>Progresso dos Módulos</span>
-                <span>{completedModules} / {totalModules}</span>
+                <span>{completedAccessibleModules} / {totalAccessibleModules}</span>
               </div>
               <Progress value={modulePercentage} className="h-2.5" />
             </div>

@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useEffect, useState } from "react";
 import { useUser } from "@/firebase";
 import { journeyPhases } from "@/data/journeyData";
 import { ProgressHeader } from "@/components/journey/ProgressHeader";
@@ -17,33 +17,33 @@ import { UserNav } from "@/components/layout/UserNav";
 import { useJourneyStore } from "@/hooks/useJourneyStore";
 import { useCurrentImplementationMember } from "@/hooks/useCurrentImplementationMember";
 import { cn } from "@/lib/utils";
-import { canAccessModule } from "@/utils/permissions";
+import { calculateModuleProgressForUser } from "@/utils/journeyProgress";
 
 export default function Home() {
   const { user, loading: authLoading } = useUser();
-  const { progress, isLoaded } = useJourneyStore();
+  const { progress, isLoaded, ensureCurrentProgressConsistency } = useJourneyStore();
   const { effectiveAreas, loading: memberLoading } = useCurrentImplementationMember();
   const router = useRouter();
+  const [hasCheckedConsistency, setHasCheckedConsistency] = useState(false);
 
+  // Módulos acessíveis e progresso granular
   const moduleStats = useMemo(() => {
-    if (!effectiveAreas.length) return { total: 0, completed: 0 };
-    
-    let total = 0;
-    let completed = 0;
+    if (!isLoaded || memberLoading) return { total: 0, completed: 0, percentage: 0 };
+    return calculateModuleProgressForUser(
+      journeyPhases, 
+      effectiveAreas, 
+      user?.globalRole as any, 
+      progress.completedModules
+    );
+  }, [effectiveAreas, user?.globalRole, progress.completedModules, isLoaded, memberLoading]);
 
-    journeyPhases.forEach(phase => {
-      phase.modules.forEach(module => {
-        if (canAccessModule(user?.globalRole as any, effectiveAreas, module)) {
-          total++;
-          if (progress.completedModules.includes(module.id)) {
-            completed++;
-          }
-        }
-      });
-    });
-
-    return { total, completed };
-  }, [effectiveAreas, user?.globalRole, progress.completedModules]);
+  // Autocorreção ao carregar
+  useEffect(() => {
+    if (isLoaded && !memberLoading && !hasCheckedConsistency && effectiveAreas.length > 0) {
+      ensureCurrentProgressConsistency(effectiveAreas);
+      setHasCheckedConsistency(true);
+    }
+  }, [isLoaded, memberLoading, hasCheckedConsistency, effectiveAreas, ensureCurrentProgressConsistency]);
 
   if (authLoading || !isLoaded || memberLoading) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -103,8 +103,8 @@ export default function Home() {
       );
     }
 
-    // Caso 2: Encontro (Apenas se não estiver no checkpoint)
-    if (nextPhase.hasMeeting) {
+    // Caso 2: Encontro
+    if (nextPhase.hasMeeting && ['ReadyToSchedule', 'Scheduled', 'WaitingApproval', 'PendingAdjustments'].includes(nextPhaseStatus)) {
       const config = {
         ReadyToSchedule: {
           title: "Encontro liberado",
@@ -133,17 +133,11 @@ export default function Home() {
           button: "Ver ajustes",
           icon: <AlertCircle className="w-6 h-6 text-red-600" />,
           color: "border-red-200 bg-red-50/30"
-        },
-        default: {
-          title: "Esta fase possui encontro",
-          description: "Após concluir os módulos e a validação, o agendamento será liberado nesta fase.",
-          button: "Acessar fase",
-          icon: <Calendar className="w-6 h-6 text-slate-400" />,
-          color: "border-slate-100 bg-slate-50/50"
         }
       };
 
-      const info = config[nextPhaseStatus as keyof typeof config] || config.default;
+      const info = config[nextPhaseStatus as keyof typeof config];
+      if (!info) return null;
 
       return (
         <Card className={cn("border-2 shadow-lg transition-all overflow-hidden", info.color)}>
@@ -195,13 +189,11 @@ export default function Home() {
           </div>
         </nav>
 
-        {progress && (
-          <ProgressHeader 
-            progress={progress} 
-            totalModules={moduleStats.total}
-            completedModules={moduleStats.completed}
-          />
-        )}
+        <ProgressHeader 
+          progress={progress} 
+          totalAccessibleModules={moduleStats.total}
+          completedAccessibleModules={moduleStats.completed}
+        />
 
         <main className="flex-1 max-w-7xl mx-auto w-full p-4 py-8">
           <div className="space-y-8">
@@ -237,9 +229,15 @@ export default function Home() {
                     Avanço baseado nas suas responsabilidades: <span className="font-bold text-primary capitalize">{effectiveAreas.join(', ')}</span>.
                   </p>
                 </div>
-                <Button asChild size="lg" className="bg-primary hover:bg-primary/90 text-white font-bold px-12 h-16 rounded-2xl shadow-xl shadow-primary/20 relative z-10">
-                  <Link href={`/phases/${nextPhase.id}`}>Acessar Meus Módulos</Link>
-                </Button>
+                {nextPhaseStatus === 'WaitingCheckpoint' ? (
+                  <Button asChild size="lg" className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-12 h-16 rounded-2xl shadow-xl shadow-amber-100 relative z-10">
+                    <Link href={`/phases/${nextPhase.id}/checkpoint`}>Responder Validação</Link>
+                  </Button>
+                ) : (
+                  <Button asChild size="lg" className="bg-primary hover:bg-primary/90 text-white font-bold px-12 h-16 rounded-2xl shadow-xl shadow-primary/20 relative z-10">
+                    <Link href={`/phases/${nextPhase.id}`}>Acessar Meus Módulos</Link>
+                  </Button>
+                )}
               </div>
             )}
 
