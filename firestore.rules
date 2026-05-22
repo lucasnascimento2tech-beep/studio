@@ -120,7 +120,7 @@ service cloud.firestore {
             
       allow update: if isAdmin() 
         || isAssignedImplantador(resource.data.implementationId) 
-        || (isClientMaster(resource.data.companyId) 
+        || (isClientMaster(request.resource.data.companyId) 
             && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'clientAccessType'])
             && request.resource.data.role == 'participant');
     }
@@ -165,16 +165,35 @@ service cloud.firestore {
         || isAssignedImplantador(resource.data.implementationId)
         || (isAuthenticated() && isClientMaster(resource.data.companyId)) 
         || (isAuthenticated() && isOwnUser(resource.data.uid));
-        
-      allow write: if isAdmin() 
-        || isAssignedImplantador(request.resource.data.implementationId)
-        || (isOwnUser(request.resource.data.uid) 
-            && belongsToImplementation(request.resource.data.implementationId)
-            && belongsToCompany(request.resource.data.companyId)
+      
+      allow create: if isAuthenticated()
+        && request.resource.data.uid == request.auth.uid
+        && getUserData().implementationId == request.resource.data.implementationId
+        && getUserData().companyId == request.resource.data.companyId
+        && request.resource.data.status == 'Scheduled'
+        && !('reviewedByUid' in request.resource.data)
+        && !('reviewedAt' in request.resource.data)
+        && !('reviewComment' in request.resource.data);
+
+      allow update: if isAdmin() 
+        || isAssignedImplantador(resource.data.implementationId)
+        || (
+            isOwnUser(resource.data.uid)
+            && request.resource.data.uid == resource.data.uid
+            && request.resource.data.implementationId == resource.data.implementationId
+            && request.resource.data.companyId == resource.data.companyId
+            && request.resource.data.phaseId == resource.data.phaseId
             && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['reviewedByUid', 'reviewedAt', 'reviewComment'])
-            && (resource == null || resource.data.status != 'Completed'));
+            && (
+              // Reagendamento ou manter dados básicos
+              (resource.data.status == 'Scheduled' && request.resource.data.status == 'WaitingApproval')
+              || (resource.data.status == request.resource.data.status && resource.data.status in ['Scheduled', 'PendingAdjustments'])
+              || (resource.data.status == 'PendingAdjustments' && request.resource.data.status == 'Scheduled')
+            )
+            && request.resource.data.status != 'Completed'
+        );
             
-      allow update: if isAdmin() || isAssignedImplantador(resource.data.implementationId);
+      allow delete: if isAdmin();
     }
 
     match /quizSubmissions/{subId} {
