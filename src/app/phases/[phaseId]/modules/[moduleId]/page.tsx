@@ -33,7 +33,7 @@ export default function ModuleDetailPage() {
   const phase = journeyPhases.find(p => p.id === phaseId);
   const module = phase?.modules.find(m => m.id === moduleId);
 
-  if (!phase || !module) return <div>Módulo não encontrado.</div>;
+  if (!phase || !module) return <div className="p-20 text-center">Módulo não encontrado.</div>;
 
   const isCompleted = progress.completedModules.includes(module.id);
   const evidence = progress.uploadedEvidence[module.id];
@@ -65,7 +65,7 @@ export default function ModuleDetailPage() {
       await completeModule(module.id, phase.id as string);
       toast({
         title: "Módulo Concluído!",
-        description: "Você avançou na sua jornada individual.",
+        description: "Seu progresso individual foi salvo com sucesso.",
       });
       
       router.push(`/phases/${phase.id}`);
@@ -82,7 +82,7 @@ export default function ModuleDetailPage() {
         await uploadEvidence(module.id, e.target.files[0].name, phase.id as string);
         toast({
           title: "Arquivo Registrado",
-          description: "Sua evidência foi enviada com sucesso.",
+          description: "Sua evidência foi enviada para revisão.",
         });
       } catch (err) {
         toast({ title: "Erro", description: "Falha ao registrar arquivo.", variant: "destructive" });
@@ -100,7 +100,7 @@ export default function ModuleDetailPage() {
           <div className="flex flex-col md:flex-row justify-between md:items-end gap-4">
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <Badge variant="secondary" className="bg-blue-50 text-primary border-blue-100">{module.area}</Badge>
+                <Badge variant="secondary" className="bg-blue-50 text-primary border-blue-100 capitalize">{module.area}</Badge>
                 <Badge variant="outline" className="text-xs">{module.type}</Badge>
               </div>
               <h1 className="text-3xl font-headline font-bold text-primary">{module.title}</h1>
@@ -125,10 +125,12 @@ export default function ModuleDetailPage() {
             </div>
 
             <div className="prose prose-blue max-w-none text-muted-foreground leading-relaxed">
-              <p className="mb-4 text-primary font-medium">{module.objective}</p>
+              <p className="mb-4 text-primary font-bold text-lg">{module.objective}</p>
               <p className="mb-6">{module.content}</p>
               
-              <h3 className="text-primary font-bold mb-3">Passo a Passo</h3>
+              <h3 className="text-primary font-bold mb-3 flex items-center gap-2">
+                <ClipboardList className="w-4 h-4" /> Passo a Passo
+              </h3>
               <ul className="space-y-2 mb-6">
                 {module.steps.map((step, idx) => (
                   <li key={idx} className="flex gap-2">
@@ -153,10 +155,10 @@ export default function ModuleDetailPage() {
 
           <section className="bg-white p-8 rounded-xl border shadow-sm">
             <h2 className="text-lg font-bold text-primary mb-4 flex items-center gap-2">
-              <ClipboardList className="w-5 h-5 text-secondary" /> Tarefa Prática
+              <ClipboardList className="w-5 h-5 text-secondary" /> Tarefa Prática Sugerida
             </h2>
             <div className="bg-blue-50/50 p-4 rounded-lg border border-blue-100 text-primary">
-              <p className="font-medium text-sm">{module.practicalTask}</p>
+              <p className="font-medium text-sm leading-relaxed">{module.practicalTask}</p>
             </div>
           </section>
         </div>
@@ -164,23 +166,23 @@ export default function ModuleDetailPage() {
         <div className="space-y-6">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-bold text-primary">Detalhes</CardTitle>
+              <CardTitle className="text-sm font-bold text-primary">Resumo</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 text-xs">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Público:</span>
+                <span className="text-muted-foreground font-medium">Público:</span>
                 <span className="font-bold text-primary">{module.audience}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Tempo Estimado:</span>
+                <span className="text-muted-foreground font-medium">Tempo Estimado:</span>
                 <span className="font-bold text-primary">{module.estimatedTime}</span>
               </div>
             </CardContent>
           </Card>
 
-          <Card className={cn(isCompleted ? "border-green-200 bg-green-50/20" : "")}>
+          <Card className={cn("shadow-md", isCompleted ? "border-green-200 bg-green-50/20" : "")}>
             <CardHeader>
-              <CardTitle className="text-base font-bold text-primary">Sua Validação</CardTitle>
+              <CardTitle className="text-base font-bold text-primary">Sua Conclusão</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
               {module.requiresEvidence && (
@@ -188,21 +190,21 @@ export default function ModuleDetailPage() {
                   <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                     Evidência Exigida
                   </Label>
-                  <p className="text-[10px] text-muted-foreground mb-2">{module.evidenceDescription}</p>
+                  <p className="text-[10px] text-muted-foreground mb-2 leading-tight">{module.evidenceDescription}</p>
                   {evidence ? (
-                    <div className="flex items-center gap-2 bg-white p-2 rounded border border-green-200 text-green-700 text-[10px]">
-                      <Check className="w-4 h-4" /> {evidence.name}
+                    <div className="flex items-center gap-2 bg-white p-3 rounded-lg border border-green-200 text-green-700 text-[10px] font-bold">
+                      <Check className="w-4 h-4" /> {evidence.name} - {evidence.status === 'approved' ? 'Aprovado' : 'Em Revisão'}
                     </div>
                   ) : (
-                    <div className="relative">
+                    <div className="relative group">
                       <Input 
                         type="file" 
-                        className="opacity-0 absolute inset-0 cursor-pointer" 
+                        className="opacity-0 absolute inset-0 cursor-pointer z-10" 
                         onChange={handleFileUpload}
                       />
-                      <Button variant="outline" className="w-full h-16 border-dashed border-2 flex flex-col gap-1">
-                        <Upload className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-[10px] font-medium">Anexar Print</span>
+                      <Button variant="outline" className="w-full h-16 border-dashed border-2 flex flex-col gap-1 group-hover:border-primary group-hover:bg-primary/5 transition-all">
+                        <Upload className="w-4 h-4 text-muted-foreground group-hover:text-primary" />
+                        <span className="text-[10px] font-bold">Anexar Print da Tela</span>
                       </Button>
                     </div>
                   )}
@@ -213,11 +215,11 @@ export default function ModuleDetailPage() {
                 <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                   Pergunta de Validação
                 </Label>
-                <p className="text-[10px] font-medium text-primary mb-2">{module.validationQuestion}</p>
+                <p className="text-[10px] font-bold text-primary mb-2 italic">"{module.validationQuestion}"</p>
                 <textarea 
                   disabled={isCompleted}
-                  className="w-full text-xs p-3 rounded-md border min-h-[80px] bg-white resize-none outline-none focus:ring-1 focus:ring-primary/20"
-                  placeholder="Sua resposta aqui..."
+                  className="w-full text-xs p-3 rounded-md border min-h-[100px] bg-white resize-none outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                  placeholder="Descreva aqui sua resposta..."
                   value={valAnswer}
                   onChange={(e) => setValAnswer(e.target.value)}
                 />
@@ -225,16 +227,16 @@ export default function ModuleDetailPage() {
             </CardContent>
             <CardFooter>
               {isCompleted ? (
-                <div className="w-full flex items-center justify-center gap-2 text-green-700 font-bold bg-green-100 py-3 rounded-md text-sm">
+                <div className="w-full flex items-center justify-center gap-2 text-green-700 font-bold bg-green-100 py-3 rounded-md text-sm border border-green-200">
                   <CheckCircle2 className="w-4 h-4" /> Módulo Concluído
                 </div>
               ) : (
                 <Button 
-                  className="w-full bg-secondary text-primary font-bold hover:bg-secondary/90 h-10"
+                  className="w-full bg-secondary text-primary font-bold hover:bg-secondary/90 h-12 shadow-lg"
                   onClick={handleComplete}
                   disabled={isSubmitting}
                 >
-                  Concluir Módulo
+                  {isSubmitting ? "Salvando..." : "Concluir Meu Módulo"}
                 </Button>
               )}
             </CardFooter>

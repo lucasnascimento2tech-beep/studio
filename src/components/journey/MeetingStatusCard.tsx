@@ -32,6 +32,7 @@ export function MeetingStatusCard({
   onSchedule 
 }: MeetingStatusCardProps) {
   
+  // Requisitos individuais baseados nas áreas do usuário logado
   const individualRequiredModules = phase.modules.filter(mod => 
     mod.isRequired && (userAreas.includes(mod.area) || userAreas.includes('todos'))
   );
@@ -48,15 +49,16 @@ export function MeetingStatusCard({
     mod.requiresEvidence && !userProgress.uploadedEvidence[mod.id]
   );
 
+  // O encontro é liberado se o usuário cumpriu seus próprios requisitos
   const isIndividualReady = completedCount === individualRequiredModules.length && individualRequiredModules.length > 0 && missingEvidence.length === 0;
   
-  // The meeting is ready if user finished modules or if the global status says so (e.g. after quiz)
+  // O encontro é liberado se os requisitos individuais estão ok OU se o status da fase já avançou
   const isUnlocked = isIndividualReady || userProgress.status === 'ReadyToSchedule' || userProgress.status === 'Scheduled' || userProgress.status === 'Completed';
 
   return (
     <div className="space-y-6">
       <Card className={cn(
-        "border-2",
+        "border-2 shadow-lg transition-all",
         isUnlocked ? "border-green-200 bg-green-50/20" : "border-slate-200 bg-slate-50/50"
       )}>
         <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -69,10 +71,12 @@ export function MeetingStatusCard({
             </div>
             <div>
               <CardTitle className="text-lg font-bold text-slate-800">
-                {phase.meetingTitle || "Encontro Guiado"}
+                {isUnlocked ? "Encontro Liberado" : "Encontro ainda não liberado"}
               </CardTitle>
               <p className="text-sm text-slate-500">
-                {isUnlocked ? "Você concluiu seus requisitos individuais." : "Aguardando seus requisitos individuais."}
+                {isUnlocked 
+                  ? "Você concluiu seus requisitos individuais. Já pode agendar." 
+                  : "Conclua seus módulos e checkpoints para liberar o agendamento."}
               </p>
             </div>
           </div>
@@ -85,13 +89,13 @@ export function MeetingStatusCard({
           {!isUnlocked && (
             <div className="bg-white rounded-lg border p-4 space-y-4">
               <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                <Info className="w-3.5 h-3.5" /> Suas Pendências para o Encontro
+                <Info className="w-3.5 h-3.5" /> Suas Pendências Individuais
               </h4>
               <div className="space-y-2">
                 {missingModules.map(mod => (
                   <div key={mod.id} className="flex items-center gap-2 text-sm text-slate-600">
                     <Clock className="w-3.5 h-3.5 text-slate-300" />
-                    <span>Módulo: {mod.title}</span>
+                    <span>Módulo Pendente: {mod.title}</span>
                   </div>
                 ))}
                 {missingEvidence.map(mod => (
@@ -101,7 +105,7 @@ export function MeetingStatusCard({
                   </div>
                 ))}
                 {individualRequiredModules.length === 0 && (
-                  <p className="text-xs text-slate-500 italic">Nenhum módulo obrigatório para sua área nesta fase.</p>
+                  <p className="text-xs text-slate-500 italic">Esta fase não possui requisitos obrigatórios para suas áreas.</p>
                 )}
               </div>
             </div>
@@ -110,7 +114,7 @@ export function MeetingStatusCard({
           {isUnlocked && (
             <div className="bg-green-100/50 rounded-lg border border-green-200 p-4 flex items-center gap-3">
               <CheckCircle2 className="w-5 h-5 text-green-600" />
-              <p className="text-sm font-medium text-green-800">Parabéns! Você já pode agendar seu encontro com o implantador.</p>
+              <p className="text-sm font-bold text-green-800">Você concluiu os requisitos desta fase. Agora já pode agendar o encontro com o implantador.</p>
             </div>
           )}
         </CardContent>
@@ -118,60 +122,62 @@ export function MeetingStatusCard({
         <CardFooter className="bg-white/50 border-t p-4 flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-2 text-slate-600 text-sm">
             {isUnlocked ? (
-              <div className="flex items-center gap-2 text-green-700 font-medium text-xs">
+              <div className="flex items-center gap-2 text-green-700 font-bold text-xs">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                Agendamento individual disponível.
+                Agendamento disponível.
               </div>
             ) : (
               <div className="flex items-center gap-2 text-slate-400 italic text-xs">
                 <AlertCircle className="w-3.5 h-3.5" />
-                Conclua os requisitos acima para agendar.
+                Conclua os requisitos individuais acima para agendar.
               </div>
             )}
           </div>
-          {isUnlocked && (
-            <Button className="w-full md:w-auto bg-primary hover:bg-primary/90 font-bold" onClick={onSchedule}>
-              Agendar Encontro <ArrowRight className="w-4 h-4 ml-2" />
-            </Button>
-          )}
+          <Button 
+            className={cn("w-full md:w-auto font-bold h-12 shadow-md", isUnlocked ? "bg-primary hover:bg-primary/90" : "bg-slate-200 text-slate-400")} 
+            onClick={onSchedule}
+            disabled={!isUnlocked}
+          >
+            {isUnlocked ? "Agendar Encontro" : "Concluir Requisitos Individuais"} <ArrowRight className="w-4 h-4 ml-2" />
+          </Button>
         </CardFooter>
       </Card>
 
       {isClientMaster && members.length > 0 && (
-        <Card className="border-slate-200 bg-white shadow-sm overflow-hidden">
+        <Card className="border-slate-200 bg-white shadow-md overflow-hidden">
           <CardHeader className="py-4 bg-slate-50 border-b">
             <CardTitle className="text-sm font-bold text-slate-700 flex items-center gap-2">
-              <Users className="w-4 h-4" /> Progresso da Equipe (Informativo)
+              <Users className="w-4 h-4" /> Acompanhamento da Equipe (Informativo)
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="divide-y">
+            <div className="divide-y max-h-[300px] overflow-y-auto">
               {members.map(m => {
-                const progress = m.uid ? memberProgress[m.uid] : null;
-                const mAreas = m.areas;
+                const prog = m.uid ? memberProgress[m.uid] : null;
+                const mAreas = m.areas || ['todos'];
                 const mRequired = phase.modules.filter(mod => 
                   mod.isRequired && (mAreas.includes(mod.area) || mAreas.includes('todos'))
                 );
-                const mCompleted = progress?.completedModules?.length || 0;
-                const mDone = mCompleted >= mRequired.length && mRequired.length > 0;
+                const mCompleted = prog?.completedModules?.length || 0;
+                const mDone = mRequired.length > 0 && mCompleted >= mRequired.length;
 
                 return (
                   <div key={m.id} className="p-4 flex items-center justify-between hover:bg-slate-50/50 transition-colors">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-600">
+                      <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-600 border">
                         {m.name.substring(0, 2).toUpperCase()}
                       </div>
                       <div>
                         <p className="text-xs font-bold text-slate-700">{m.name}</p>
-                        <p className="text-[10px] text-slate-400 capitalize">{m.areas.join(', ')}</p>
+                        <p className="text-[9px] text-slate-400 capitalize">{m.areas.join(', ')}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-4">
                       <div className="text-right">
                         <p className="text-[10px] font-bold text-slate-500">{mCompleted}/{mRequired.length}</p>
                         <div className="w-16 h-1 bg-slate-100 rounded-full mt-1">
                           <div 
-                            className="h-full bg-primary transition-all" 
+                            className={cn("h-full transition-all", mDone ? "bg-green-500" : "bg-primary")} 
                             style={{ width: `${mRequired.length > 0 ? (mCompleted / mRequired.length) * 100 : 0}%` }} 
                           />
                         </div>
@@ -181,6 +187,9 @@ export function MeetingStatusCard({
                   </div>
                 );
               })}
+            </div>
+            <div className="p-3 bg-blue-50 text-[10px] text-blue-700 font-medium text-center border-t">
+              O progresso da equipe não bloqueia seu avanço individual.
             </div>
           </CardContent>
         </Card>

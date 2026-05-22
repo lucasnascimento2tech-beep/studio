@@ -45,7 +45,7 @@ export default function Home() {
 
     const db = getFirestore();
     
-    // Global company progress (informative for Master)
+    // Para Masters, mostramos progresso da equipe apenas como informativo
     const membersQuery = query(
       collection(db, "implementationMembers"),
       where("implementationId", "==", user.implementationId)
@@ -85,10 +85,9 @@ export default function Home() {
     </div>
   );
 
+  // Filtra fases que ainda não estão completas (Individual)
   const nextPhase = journeyPhases.find(p => 
-    progress.phaseStatus[p.id] === 'InProgress' || 
-    progress.phaseStatus[p.id] === 'NotStarted' ||
-    !progress.phaseStatus[p.id]
+    progress.phaseStatus[p.id] !== 'Completed'
   ) || journeyPhases[0];
 
   const userAreas = (user as any)?.areas || ['todos'];
@@ -126,11 +125,11 @@ export default function Home() {
               <div className="flex-1 text-center md:text-left relative z-10">
                 <h2 className="text-xs font-bold text-primary uppercase tracking-widest mb-2 flex items-center gap-2 justify-center md:justify-start">
                   <span className="w-2 h-2 bg-primary rounded-full animate-pulse" />
-                  Seu Próximo Passo
+                  Seu Próximo Passo Individual
                 </h2>
                 <h3 className="text-3xl font-bold text-slate-900 mb-2">{nextPhase.title}</h3>
                 <p className="text-slate-500 text-sm max-w-xl">
-                  {nextPhase.description} Sua jornada é individual e focada nas suas áreas de atuação.
+                  {nextPhase.description} Sua jornada avança conforme suas responsabilidades e áreas de atuação.
                 </p>
               </div>
               <Button asChild size="lg" className="bg-primary hover:bg-primary/90 text-white font-bold px-12 h-16 rounded-2xl shadow-xl shadow-primary/20 relative z-10">
@@ -178,21 +177,21 @@ export default function Home() {
               <div className="bg-white p-4 rounded-2xl shadow-md h-fit border-none"><Info className="text-primary w-7 h-7" /></div>
               <div>
                 <h4 className="font-bold text-slate-900 mb-2 text-lg">Jornada Individual</h4>
-                <p className="text-sm text-slate-500 leading-relaxed">Você avança conforme seu próprio ritmo e responsabilidades no sistema.</p>
+                <p className="text-sm text-slate-500 leading-relaxed">Você avança conforme seu próprio ritmo, sem depender do progresso de outros colegas.</p>
               </div>
             </div>
             <div className="flex gap-5">
               <div className="bg-white p-4 rounded-2xl shadow-md h-fit border-none"><Trophy className="text-primary w-7 h-7" /></div>
               <div>
-                <h4 className="font-bold text-slate-900 mb-2 text-lg">Selo de Qualidade</h4>
-                <p className="text-sm text-slate-500 leading-relaxed">Concluir a jornada garante 100% de aproveitamento das ferramentas.</p>
+                <h4 className="font-bold text-slate-900 mb-2 text-lg">Independência</h4>
+                <p className="text-sm text-slate-500 leading-relaxed">Cada participante libera seus próprios encontros e checkpoints.</p>
               </div>
             </div>
             <div className="flex gap-5">
               <div className="bg-white p-4 rounded-2xl shadow-md h-fit border-none"><Settings className="text-primary w-7 h-7" /></div>
               <div>
-                <h4 className="font-bold text-slate-900 mb-2 text-lg">Apoio Direto</h4>
-                <p className="text-sm text-slate-500 leading-relaxed">Nossos implantadores validam cada etapa individualmente para sua segurança.</p>
+                <h4 className="font-bold text-slate-900 mb-2 text-lg">Apoio Especializado</h4>
+                <p className="text-sm text-slate-500 leading-relaxed">Nossos implantadores validam suas evidências individualmente.</p>
               </div>
             </div>
           </div>

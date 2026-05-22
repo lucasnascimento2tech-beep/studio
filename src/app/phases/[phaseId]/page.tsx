@@ -29,11 +29,13 @@ export default function PhaseDetailPage() {
     if (!user?.implementationId) return;
 
     const db = getFirestore();
+    // Para Masters, mostramos progresso da equipe apenas como informativo
     const mQuery = query(collection(db, "implementationMembers"), where("implementationId", "==", user.implementationId));
     const unsubMembers = onSnapshot(mQuery, (snap) => {
       setMembers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
+    // Escuta progresso de todos para visão do Master/Implantador
     const pQuery = query(collection(db, "moduleProgress"), where("implementationId", "==", user.implementationId));
     const unsubProg = onSnapshot(pQuery, (snap) => {
       const allProg: Record<string, any> = {};
@@ -60,19 +62,21 @@ export default function PhaseDetailPage() {
   );
 
   const phase = journeyPhases.find(p => p.id === phaseId);
-  if (!phase) return <div>Fase não encontrada.</div>;
+  if (!phase) return <div className="p-20 text-center">Fase não encontrada.</div>;
 
   const status = progress.phaseStatus[phase.id] || (phase.order === 0 ? 'InProgress' : 'Locked');
-  if (status === 'Locked') {
-    router.push('/');
-    return null;
-  }
-
-  // Individual areas for the user
+  
+  // Regra de acesso por área (Individual)
+  // Client Master vê tudo. Participants vêem apenas suas áreas.
   const userAreas = (user as any)?.areas || ['todos'];
-  const individualModules = phase.modules.filter(m => userAreas.includes(m.area) || userAreas.includes('todos'));
-  const completedModules = individualModules.filter(m => progress.completedModules.includes(m.id)).length;
-  const percentage = individualModules.length > 0 ? Math.round((completedModules / individualModules.length) * 100) : 100;
+  const isMaster = user?.globalRole === 'client_master' || user?.globalRole === 'admin_2tech' || user?.globalRole === 'implantador';
+  
+  const individualModules = phase.modules.filter(m => 
+    isMaster || userAreas.includes(m.area) || userAreas.includes('todos')
+  );
+
+  const completedCount = individualModules.filter(m => progress.completedModules.includes(m.id)).length;
+  const percentage = individualModules.length > 0 ? Math.round((completedCount / individualModules.length) * 100) : 100;
 
   return (
     <div className="min-h-screen bg-background pb-12">
@@ -91,7 +95,7 @@ export default function PhaseDetailPage() {
             </div>
             <div className="min-w-[200px]">
               <div className="flex justify-between text-xs mb-1 font-medium text-muted-foreground">
-                <span>Seu Progresso</span>
+                <span>Seu Progresso Individual</span>
                 <span>{percentage}%</span>
               </div>
               <Progress value={percentage} className="h-2" />
@@ -108,7 +112,7 @@ export default function PhaseDetailPage() {
           <div className="space-y-4">
             {individualModules.length === 0 ? (
               <Card className="py-12 text-center text-slate-500 border-dashed">
-                <p>Nenhum módulo específico para sua área nesta fase.</p>
+                <p>Nenhum módulo obrigatório para suas áreas nesta fase.</p>
               </Card>
             ) : (
               individualModules.map((module) => {
@@ -135,12 +139,12 @@ export default function PhaseDetailPage() {
                             {isModuleCompleted && <CheckCircle2 className="w-4 h-4 text-green-500" />}
                           </div>
                           <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                            <span className="bg-gray-100 px-1.5 py-0.5 rounded">{module.type}</span>
-                            <span>{module.estimatedTime}</span>
+                            <Badge variant="secondary" className="bg-gray-100 hover:bg-gray-100 px-1.5 py-0 text-[10px]">{module.type}</Badge>
+                            <span className="flex items-center gap-1"><Info className="w-3 h-3" /> {module.estimatedTime}</span>
                           </div>
                         </div>
                       </div>
-                      <Button asChild variant={isModuleCompleted ? "outline" : "default"} size="sm">
+                      <Button asChild variant={isModuleCompleted ? "outline" : "default"} size="sm" className="font-bold">
                         <Link href={`/phases/${phase.id}/modules/${module.id}`}>
                           {isModuleCompleted ? "Revisar" : "Iniciar"}
                         </Link>
@@ -153,29 +157,29 @@ export default function PhaseDetailPage() {
           </div>
         </section>
 
-        {/* Checkpoint Section */}
-        {percentage === 100 && status === 'InProgress' && (
+        {/* Checkpoint Section (Individual) */}
+        {percentage === 100 && (status === 'InProgress' || status === 'NotStarted') && (
           <section className="mb-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <Card className="border-2 border-secondary bg-secondary/5">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-primary font-headline">
-                  <CheckCircle2 className="w-6 h-6 text-secondary" /> Checkpoint de Validação Individual
+                  <CheckCircle2 className="w-6 h-6 text-secondary" /> Checkpoint de Validação
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Você concluiu todos os seus módulos da <strong>{phase.title}</strong>. 
-                  Responda o checkpoint para liberar o agendamento do seu encontro.
+                  Você concluiu seus módulos individuais da <strong>{phase.title}</strong>. 
+                  Responda o checkpoint para validar seu conhecimento e liberar o agendamento.
                 </p>
                 <Button asChild size="lg" className="w-full bg-secondary text-primary font-bold hover:bg-secondary/90">
-                  <Link href={`/phases/${phase.id}/checkpoint`}>Realizar Validação</Link>
+                  <Link href={`/phases/${phase.id}/checkpoint`}>Realizar Validação Agora</Link>
                 </Button>
               </CardContent>
             </Card>
           </section>
         )}
 
-        {/* Meeting Section */}
+        {/* Meeting Section (Individual) */}
         {phase.hasMeeting && (
           <MeetingStatusCard 
             phase={phase}

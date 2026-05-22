@@ -27,7 +27,7 @@ export function useJourneyStore() {
 
     const db = getFirestore();
     
-    // Listen to module progress (Individual)
+    // Escuta progresso de módulos INDIVIDUAL (uid + implementationId)
     const moduleQuery = query(
       collection(db, "moduleProgress"),
       where("implementationId", "==", user.implementationId),
@@ -51,7 +51,7 @@ export function useJourneyStore() {
         }
       });
 
-      // Listen to Individual Phase Progress
+      // Escuta progresso de fases INDIVIDUAL
       const phaseQuery = query(
         collection(db, "phaseProgress"),
         where("implementationId", "==", user.implementationId),
@@ -66,7 +66,7 @@ export function useJourneyStore() {
           phaseStatus[data.phaseId] = data.status;
         });
 
-        // Listen to Meetings (Individual)
+        // Escuta Encontros/Meetings INDIVIDUAL
         const meetingsQuery = query(
           collection(db, "meetings"),
           where("implementationId", "==", user.implementationId),
@@ -80,13 +80,14 @@ export function useJourneyStore() {
             meetingStatus[data.phaseId] = data.status;
           });
 
-          setProgress(prev => ({
-            ...prev,
+          setProgress({
             completedModules,
             uploadedEvidence,
             phaseStatus,
-            meetingStatus
-          }));
+            meetingStatus,
+            quizScores: {}, // Pode ser expandido se necessário
+            implantadorNotes: {}
+          });
           setIsLoaded(true);
         });
 
@@ -110,7 +111,7 @@ export function useJourneyStore() {
     await setDoc(doc(db, "moduleProgress", progressId), {
       uid: user.uid,
       implementationId: user.implementationId,
-      companyId: user.companyId,
+      companyId: user.companyId || "",
       phaseId,
       moduleId,
       status: "completed",
@@ -127,7 +128,7 @@ export function useJourneyStore() {
     await setDoc(doc(db, "moduleProgress", progressId), {
       uid: user.uid,
       implementationId: user.implementationId,
-      companyId: user.companyId,
+      companyId: user.companyId || "",
       phaseId,
       moduleId,
       fileName,
@@ -143,19 +144,18 @@ export function useJourneyStore() {
     await setDoc(doc(db, "quizSubmissions", `${user.uid}_${phaseId}`), {
       uid: user.uid,
       implementationId: user.implementationId,
-      companyId: user.companyId,
+      companyId: user.companyId || "",
       phaseId,
       score,
       passed: score >= 70,
       submittedAt: serverTimestamp()
     });
 
-    // Update individual phase status after quiz
     if (score >= 70) {
       await setDoc(doc(db, "phaseProgress", `${user.uid}_${phaseId}`), {
         uid: user.uid,
         implementationId: user.implementationId,
-        companyId: user.companyId,
+        companyId: user.companyId || "",
         phaseId,
         status: "ReadyToSchedule",
         updatedAt: serverTimestamp()
@@ -167,10 +167,11 @@ export function useJourneyStore() {
     if (!user?.uid || !user?.implementationId) return;
     const db = getFirestore();
     
-    await setDoc(doc(db, "meetings", `${user.uid}_${phaseId}`), {
+    const meetingRef = doc(db, "meetings", `${user.uid}_${phaseId}`);
+    await setDoc(meetingRef, {
       uid: user.uid,
       implementationId: user.implementationId,
-      companyId: user.companyId,
+      companyId: user.companyId || "",
       phaseId,
       status: "scheduled",
       scheduledAt: details?.date || serverTimestamp(),
@@ -182,7 +183,7 @@ export function useJourneyStore() {
     await setDoc(doc(db, "phaseProgress", `${user.uid}_${phaseId}`), {
       uid: user.uid,
       implementationId: user.implementationId,
-      companyId: user.companyId,
+      companyId: user.companyId || "",
       phaseId,
       status: "Scheduled",
       updatedAt: serverTimestamp()

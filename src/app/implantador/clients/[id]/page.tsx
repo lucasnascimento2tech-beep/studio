@@ -97,7 +97,7 @@ export default function ClientDetailSpecialistPage() {
             </Button>
             <div>
               <h1 className="font-bold text-lg leading-none">Gestão de Cliente</h1>
-              <p className="text-xs text-slate-400 mt-1 uppercase tracking-widest font-bold">Ref: {implementation?.id.substring(0,8)}</p>
+              <p className="text-xs text-slate-400 mt-1 uppercase tracking-widest font-bold">Ref: {implementation?.id?.substring(0,8)}</p>
             </div>
           </div>
           <UserNav user={user} />
@@ -133,21 +133,21 @@ export default function ClientDetailSpecialistPage() {
             <TabsContent value="team">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {members.map(member => {
-                  const mProg = allModuleProgress.filter(p => p.uid === member.uid);
+                  const mProg = allModuleProgress.filter(p => p.uid === (member.uid || member.email));
                   const completedModulesCount = mProg.filter(p => p.status === 'completed').length;
                   
-                  // Simple heuristic for percentage (total required in current phase)
+                  // Heurística de progresso baseada na fase atual e áreas do usuário
                   const currentPhase = journeyPhases.find(p => p.id === implementation?.currentPhaseId) || journeyPhases[0];
                   const mAreas = member.areas || ['todos'];
                   const reqInPhase = currentPhase.modules.filter(m => m.isRequired && (mAreas.includes(m.area) || mAreas.includes('todos'))).length;
                   const doneInPhase = mProg.filter(p => p.phaseId === currentPhase.id && p.status === 'completed').length;
-                  const perc = reqInPhase > 0 ? Math.round((doneInPhase / reqInPhase) * 100) : 100;
+                  const perc = reqInPhase > 0 ? Math.round((doneInPhase / reqInPhase) * 100) : (completedModulesCount > 0 ? 100 : 0);
 
                   return (
                     <Card key={member.id} className="border-none shadow-md overflow-hidden bg-white hover:shadow-lg transition-all">
                       <CardHeader className="pb-2">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-500">
+                          <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-500 border">
                             {member.name.substring(0,2).toUpperCase()}
                           </div>
                           <div>
@@ -158,11 +158,11 @@ export default function ClientDetailSpecialistPage() {
                       </CardHeader>
                       <CardContent className="space-y-4">
                         <div className="flex justify-between text-xs">
-                          <span className="text-slate-400 font-bold uppercase">Progresso Fase</span>
+                          <span className="text-slate-400 font-bold uppercase">Progresso na Fase</span>
                           <span className="font-bold text-primary">{perc}%</span>
                         </div>
                         <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                          <div className="h-full bg-primary" style={{ width: `${perc}%` }} />
+                          <div className={cn("h-full transition-all", perc === 100 ? "bg-green-500" : "bg-primary")} style={{ width: `${perc}%` }} />
                         </div>
                         <div className="flex flex-wrap gap-1">
                           {mAreas.map(a => (
@@ -170,11 +170,11 @@ export default function ClientDetailSpecialistPage() {
                           ))}
                         </div>
                         <div className="pt-2 border-t flex justify-between items-center text-[10px]">
-                          <span className="text-slate-400">Total Concluídos: <strong>{completedModulesCount}</strong></span>
+                          <span className="text-slate-400">Total Módulos Concluídos: <strong>{completedModulesCount}</strong></span>
                           {perc === 100 ? (
                             <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-none px-2 py-0">Pronto</Badge>
                           ) : (
-                            <Badge variant="outline" className="text-slate-400 px-2 py-0">Ativo</Badge>
+                            <Badge variant="outline" className="text-slate-400 px-2 py-0">Em Jornada</Badge>
                           )}
                         </div>
                       </CardContent>
@@ -198,9 +198,9 @@ export default function ClientDetailSpecialistPage() {
                         <div className="flex justify-between items-start">
                           <div>
                             <Badge variant="outline" className="mb-2 uppercase text-[10px] font-bold text-slate-400">
-                              Módulo ID: {evidence.moduleId}
+                              Módulo: {evidence.moduleId}
                             </Badge>
-                            <h4 className="font-bold text-slate-900">De: {members.find(m => m.uid === evidence.uid)?.name || 'Membro'}</h4>
+                            <h4 className="font-bold text-slate-900">De: {members.find(m => (m.uid === evidence.uid || m.email === evidence.uid))?.name || 'Membro'}</h4>
                           </div>
                           <Badge variant="secondary" className="bg-orange-100 text-orange-700">Aguardando Revisão</Badge>
                         </div>
