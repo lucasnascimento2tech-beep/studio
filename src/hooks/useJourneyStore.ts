@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -234,15 +233,15 @@ export function useJourneyStore() {
     const snap = await getDocs(q);
     const doneIds = snap.docs.map(d => d.data().moduleId);
 
-    const isDone = requiredModules.length > 0 ? requiredModules.every(m => doneIds.includes(m.id)) : true;
+    const completedRequiredCount = requiredModules.filter(m => doneIds.includes(m.id)).length;
+    const isDone = requiredModules.length > 0 ? completedRequiredCount === requiredModules.length : true;
     
     const phaseRef = doc(db, "phaseProgress", getPhaseProgressId(phaseId));
     const currentPhaseDoc = await getDoc(phaseRef);
     const currentStatus = currentPhaseDoc.exists() ? currentPhaseDoc.data().status : 'InProgress';
 
     const totalCount = requiredModules.length;
-    const doneCount = doneIds.length;
-    const percent = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 100;
+    const percent = totalCount > 0 ? Math.round((completedRequiredCount / totalCount) * 100) : 100;
 
     let newStatus = currentStatus;
     const nonReversible = ['ReadyToSchedule', 'Scheduled', 'WaitingApproval', 'Completed', 'PendingAdjustments'];
@@ -258,7 +257,7 @@ export function useJourneyStore() {
       phaseId,
       status: newStatus,
       progressPercent: percent,
-      completedModulesCount: doneCount,
+      completedModulesCount: completedRequiredCount,
       totalModulesCount: totalCount,
       updatedAt: serverTimestamp()
     }, { merge: true });

@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import { useUser } from "@/firebase";
 import { journeyPhases } from "@/data/journeyData";
 import { ProgressHeader } from "@/components/journey/ProgressHeader";
@@ -9,7 +9,7 @@ import { PhaseCard } from "@/components/journey/PhaseCard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
-import { Settings, Info, Trophy, Rocket, UserPlus, AlertCircle, Calendar, ArrowRight, CheckCircle2, Clock } from "lucide-react";
+import { Settings, Info, Trophy, Rocket, UserPlus, AlertCircle, Calendar, ArrowRight, ClipboardList, Clock } from "lucide-react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { useRouter } from "next/navigation";
@@ -17,12 +17,33 @@ import { UserNav } from "@/components/layout/UserNav";
 import { useJourneyStore } from "@/hooks/useJourneyStore";
 import { useCurrentImplementationMember } from "@/hooks/useCurrentImplementationMember";
 import { cn } from "@/lib/utils";
+import { canAccessModule } from "@/utils/permissions";
 
 export default function Home() {
   const { user, loading: authLoading } = useUser();
   const { progress, isLoaded } = useJourneyStore();
   const { effectiveAreas, loading: memberLoading } = useCurrentImplementationMember();
   const router = useRouter();
+
+  const moduleStats = useMemo(() => {
+    if (!effectiveAreas.length) return { total: 0, completed: 0 };
+    
+    let total = 0;
+    let completed = 0;
+
+    journeyPhases.forEach(phase => {
+      phase.modules.forEach(module => {
+        if (canAccessModule(user?.globalRole as any, effectiveAreas, module)) {
+          total++;
+          if (progress.completedModules.includes(module.id)) {
+            completed++;
+          }
+        }
+      });
+    });
+
+    return { total, completed };
+  }, [effectiveAreas, user?.globalRole, progress.completedModules]);
 
   if (authLoading || !isLoaded || memberLoading) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -51,73 +72,106 @@ export default function Home() {
   const isJourneyCompleted = !nextPhase;
   const nextPhaseStatus = nextPhase ? (progress.phaseStatus[nextPhase.id] || (nextPhase.id === 'fase-0' ? 'InProgress' : 'Locked')) : 'Completed';
 
-  const renderMeetingInfoCard = () => {
-    if (!nextPhase || !nextPhase.hasMeeting) return null;
+  const renderStatusInfoCard = () => {
+    if (!nextPhase) return null;
 
-    const config = {
-      ReadyToSchedule: {
-        title: "Encontro liberado",
-        description: "Você já pode acessar a fase e registrar o agendamento com o implantador.",
-        button: "Agendar na fase",
-        icon: <Calendar className="w-6 h-6 text-green-600" />,
-        color: "border-green-200 bg-green-50/30"
-      },
-      Scheduled: {
-        title: "Encontro agendado",
-        description: "Acesse a fase para acompanhar o status e o horário do encontro.",
-        button: "Ver encontro",
-        icon: <Calendar className="w-6 h-6 text-blue-600" />,
-        color: "border-blue-200 bg-blue-50/30"
-      },
-      WaitingApproval: {
-        title: "Aguardando aprovação",
-        description: "O encontro foi marcado como realizado e aguarda validação da equipe 2tech.",
-        button: "Ver status",
-        icon: <Clock className="w-6 h-6 text-amber-600" />,
-        color: "border-amber-200 bg-amber-50/30"
-      },
-      PendingAdjustments: {
-        title: "Ajustes solicitados",
-        description: "Acesse a fase para verificar o comentário do implantador e reagendar se necessário.",
-        button: "Ver ajustes",
-        icon: <AlertCircle className="w-6 h-6 text-red-600" />,
-        color: "border-red-200 bg-red-50/30"
-      },
-      default: {
-        title: "Esta fase possui encontro",
-        description: "Após concluir os módulos e a validação, o agendamento será liberado nesta fase.",
-        button: "Acessar fase",
-        icon: <Calendar className="w-6 h-6 text-slate-400" />,
-        color: "border-slate-100 bg-slate-50/50"
-      }
-    };
-
-    const info = config[nextPhaseStatus as keyof typeof config] || config.default;
-
-    return (
-      <Card className={cn("border-2 shadow-lg transition-all overflow-hidden", info.color)}>
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <div className="flex items-center gap-3">
-            <div className="p-3 rounded-xl bg-white shadow-sm">
-              {info.icon}
+    // Caso 1: Validação Pendente (WaitingCheckpoint)
+    if (nextPhaseStatus === 'WaitingCheckpoint') {
+      return (
+        <Card className="border-2 border-amber-200 bg-amber-50 shadow-lg overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-500">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-xl bg-white shadow-sm">
+                <ClipboardList className="w-6 h-6 text-amber-600" />
+              </div>
+              <div>
+                <CardTitle className="text-lg font-bold text-amber-900">Validação da fase pendente</CardTitle>
+                <p className="text-[10px] text-amber-500 uppercase tracking-widest font-bold">Ação necessária para avançar</p>
+              </div>
             </div>
-            <div>
-              <CardTitle className="text-lg font-bold text-slate-800">{info.title}</CardTitle>
-              <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Ação individual necessária</p>
+            <Badge className="bg-amber-100 text-amber-700 border-amber-200">Aguardando Validação</Badge>
+          </CardHeader>
+          <CardContent className="pt-2">
+            <p className="text-sm text-amber-800 leading-relaxed">Você concluiu todos os módulos obrigatórios da <strong>{nextPhase.title}</strong>. Responda a validação de conhecimento para liberar o próximo passo da sua jornada.</p>
+          </CardContent>
+          <CardFooter className="bg-white/50 border-t p-4 flex justify-end">
+            <Button asChild size="sm" className="bg-amber-600 hover:bg-amber-700 text-white font-bold">
+              <Link href={`/phases/${nextPhase.id}/checkpoint`}>Responder Validação Agora <ArrowRight className="w-4 h-4 ml-2" /></Link>
+            </Button>
+          </CardFooter>
+        </Card>
+      );
+    }
+
+    // Caso 2: Encontro (Apenas se não estiver no checkpoint)
+    if (nextPhase.hasMeeting) {
+      const config = {
+        ReadyToSchedule: {
+          title: "Encontro liberado",
+          description: "Você já pode acessar a fase e registrar o agendamento com o implantador.",
+          button: "Agendar na fase",
+          icon: <Calendar className="w-6 h-6 text-green-600" />,
+          color: "border-green-200 bg-green-50/30"
+        },
+        Scheduled: {
+          title: "Encontro agendado",
+          description: "Acesse a fase para acompanhar o status e o horário do encontro.",
+          button: "Ver encontro",
+          icon: <Calendar className="w-6 h-6 text-blue-600" />,
+          color: "border-blue-200 bg-blue-50/30"
+        },
+        WaitingApproval: {
+          title: "Aguardando aprovação",
+          description: "O encontro foi marcado como realizado e aguarda validação da equipe 2tech.",
+          button: "Ver status",
+          icon: <Clock className="w-6 h-6 text-indigo-600" />,
+          color: "border-indigo-200 bg-indigo-50/30"
+        },
+        PendingAdjustments: {
+          title: "Ajustes solicitados",
+          description: "Acesse a fase para verificar o comentário do implantador e reagendar se necessário.",
+          button: "Ver ajustes",
+          icon: <AlertCircle className="w-6 h-6 text-red-600" />,
+          color: "border-red-200 bg-red-50/30"
+        },
+        default: {
+          title: "Esta fase possui encontro",
+          description: "Após concluir os módulos e a validação, o agendamento será liberado nesta fase.",
+          button: "Acessar fase",
+          icon: <Calendar className="w-6 h-6 text-slate-400" />,
+          color: "border-slate-100 bg-slate-50/50"
+        }
+      };
+
+      const info = config[nextPhaseStatus as keyof typeof config] || config.default;
+
+      return (
+        <Card className={cn("border-2 shadow-lg transition-all overflow-hidden", info.color)}>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-xl bg-white shadow-sm">
+                {info.icon}
+              </div>
+              <div>
+                <CardTitle className="text-lg font-bold text-slate-800">{info.title}</CardTitle>
+                <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Encontro com Especialista</p>
+              </div>
             </div>
-          </div>
-          <Badge variant="outline" className="bg-white">{nextPhaseStatus}</Badge>
-        </CardHeader>
-        <CardContent className="pt-2">
-          <p className="text-sm text-slate-600 leading-relaxed">{info.description}</p>
-        </CardContent>
-        <CardFooter className="bg-white/50 border-t p-4 flex justify-end">
-          <Button asChild variant="outline" size="sm" className="font-bold">
-            <Link href={`/phases/${nextPhase.id}`}>{info.button} <ArrowRight className="w-4 h-4 ml-2" /></Link>
-          </Button>
-        </CardFooter>
-      </Card>
-    );
+            <Badge variant="outline" className="bg-white">{nextPhaseStatus}</Badge>
+          </CardHeader>
+          <CardContent className="pt-2">
+            <p className="text-sm text-slate-600 leading-relaxed">{info.description}</p>
+          </CardContent>
+          <CardFooter className="bg-white/50 border-t p-4 flex justify-end">
+            <Button asChild variant="outline" size="sm" className="font-bold">
+              <Link href={`/phases/${nextPhase.id}`}>{info.button} <ArrowRight className="w-4 h-4 ml-2" /></Link>
+            </Button>
+          </CardFooter>
+        </Card>
+      );
+    }
+
+    return null;
   };
 
   return (
@@ -141,7 +195,13 @@ export default function Home() {
           </div>
         </nav>
 
-        {progress && <ProgressHeader progress={progress} />}
+        {progress && (
+          <ProgressHeader 
+            progress={progress} 
+            totalModules={moduleStats.total}
+            completedModules={moduleStats.completed}
+          />
+        )}
 
         <main className="flex-1 max-w-7xl mx-auto w-full p-4 py-8">
           <div className="space-y-8">
@@ -183,7 +243,7 @@ export default function Home() {
               </div>
             )}
 
-            {renderMeetingInfoCard()}
+            {renderStatusInfoCard()}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mt-12">

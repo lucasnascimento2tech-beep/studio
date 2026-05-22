@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { 
   getFirestore, doc, onSnapshot, collection, query, where, 
@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogT
 import { useToast } from "@/hooks/use-toast";
 import { 
   ArrowLeft, FileText, ShieldCheck, Users, Clock, 
-  CheckCircle2, Calendar, MessageSquare, Info, AlertTriangle, ExternalLink, Search, User, Trash2, Check, X, ShieldAlert
+  CheckCircle2, Calendar, MessageSquare, Info, AlertTriangle, ExternalLink, Search, User, Trash2, Check, X, ShieldAlert, BarChart3, ChevronDown, ChevronRight
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -29,6 +29,7 @@ import { journeyPhases } from "@/data/journeyData";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useJourneyStore } from "@/hooks/useJourneyStore";
+import { canAccessModule } from "@/utils/permissions";
 
 export default function ClientDetailPage() {
   const { id: implementationId } = useParams();
@@ -59,6 +60,7 @@ export default function ClientDetailPage() {
   const [activeModal, setActiveModal] = useState<'evidence' | 'meeting' | 'participant' | 'none'>( 'none');
   const [newNote, setNewNote] = useState("");
   const [noteVisibility, setNoteVisibility] = useState<'internal' | 'client_visible'>('internal');
+  const [expandedMember, setExpandedMember] = useState<string | null>(null);
 
   // 1. Carregar Implementação e Validar Acesso Primeiro
   useEffect(() => {
@@ -117,10 +119,8 @@ export default function ClientDetailPage() {
       setAllSubmissions(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    // Removido orderBy do banco para evitar necessidade de índice composto
     const unsubNotes = onSnapshot(query(collection(db, "implantadorNotes"), where("implementationId", "==", implementationId)), (snap) => {
       const notes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      // Ordenação no frontend para evitar falha por falta de índice
       notes.sort((a: any, b: any) => {
         const dateA = a.createdAt?.seconds || 0;
         const dateB = b.createdAt?.seconds || 0;
@@ -134,6 +134,37 @@ export default function ClientDetailPage() {
       unsubMembers(); unsubModules(); unsubPhases(); unsubMeetings(); unsubSubmissions(); unsubNotes();
     };
   }, [accessStatus, implementationId, db]);
+
+  // Cálculos Consolidados
+  const implementationSummary = useMemo(() => {
+    const activeMembers = members.filter(m => m.active && m.uid);
+    let totalExpected = 0;
+    let totalCompleted = 0;
+
+    activeMembers.forEach(m => {
+      const userAreas = m.areas || [];
+      journeyPhases.forEach(phase => {
+        phase.modules.forEach(mod => {
+          if (canAccessModule(m.clientAccessType === 'master' ? 'client_master' : 'client_participant', userAreas, mod)) {
+            totalExpected++;
+            const isDone = allModuleProgress.some(p => p.uid === m.uid && p.moduleId === mod.id && p.status === 'completed');
+            if (isDone) totalCompleted++;
+          }
+        });
+      });
+    });
+
+    const pendingCheckpoints = allPhaseProgress.filter(p => p.status === 'WaitingCheckpoint').length;
+    const pendingAdjustments = allPhaseProgress.filter(p => p.status === 'PendingAdjustments').length;
+
+    return {
+      totalExpected,
+      totalCompleted,
+      percent: totalExpected > 0 ? Math.round((totalCompleted / totalExpected) * 100) : 0,
+      pendingCheckpoints,
+      pendingAdjustments
+    };
+  }, [members, allModuleProgress, allPhaseProgress]);
 
   const canOperate = accessStatus === 'allowed';
 
@@ -316,17 +347,22 @@ export default function ClientDetailPage() {
               </div>
             </div>
             
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 w-full lg:w-auto">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 w-full lg:w-auto">
               <Card className="bg-blue-50/50 border-blue-100 p-4 text-center">
-                <p className="text-[10px] font-bold text-blue-400 uppercase">Aguardando Avaliação</p>
-                <p className="text-2xl font-bold text-blue-700">{stats.pendingMeetings}</p>
+                <p className="text-[9px] font-bold text-blue-400 uppercase">Módulos Concluídos</p>
+                <p className="text-2xl font-bold text-blue-700">{implementationSummary.totalCompleted}</p>
+                <p className="text-[10px] text-blue-400 mt-1">{implementationSummary.percent}% da meta</p>
               </Card>
               <Card className="bg-orange-50/50 border-orange-100 p-4 text-center">
-                <p className="text-[10px] font-bold text-orange-400 uppercase">Evidências Pendentes</p>
-                <p className="text-2xl font-bold text-orange-700">{stats.pendingEvidence}</p>
+                <p className="text-[9px] font-bold text-orange-400 uppercase">Aguardando Avaliação</p>
+                <p className="text-2xl font-bold text-orange-700">{stats.pendingMeetings}</p>
+              </Card>
+              <Card className="bg-yellow-50/50 border-yellow-100 p-4 text-center">
+                <p className="text-[9px] font-bold text-yellow-600 uppercase">Checkpoints Pendentes</p>
+                <p className="text-2xl font-bold text-yellow-700">{implementationSummary.pendingCheckpoints}</p>
               </Card>
               <Card className="bg-slate-50 border-slate-200 p-4 text-center">
-                <p className="text-[10px] font-bold text-slate-400 uppercase">Participantes</p>
+                <p className="text-[9px] font-bold text-slate-400 uppercase">Participantes</p>
                 <p className="text-2xl font-bold text-slate-700">{stats.activeParticipants}</p>
               </Card>
             </div>
@@ -336,6 +372,9 @@ export default function ClientDetailPage() {
             <TabsList className="bg-white border p-1 h-14 rounded-2xl shadow-sm overflow-x-auto justify-start max-w-full">
               <TabsTrigger value="overview" className="px-6 h-12 rounded-xl font-bold data-[state=active]:bg-primary data-[state=active]:text-white">Visão Geral</TabsTrigger>
               <TabsTrigger value="team" className="px-6 h-12 rounded-xl font-bold data-[state=active]:bg-primary data-[state=active]:text-white">Participantes</TabsTrigger>
+              <TabsTrigger value="progress" className="px-6 h-12 rounded-xl font-bold data-[state=active]:bg-primary data-[state=active]:text-white flex items-center gap-2">
+                <BarChart3 className="w-4 h-4" /> Progresso
+              </TabsTrigger>
               <TabsTrigger value="evidence" className="px-6 h-12 rounded-xl font-bold data-[state=active]:bg-primary data-[state=active]:text-white relative">
                 Evidências
                 {stats.pendingEvidence > 0 && <Badge className="absolute -top-1 -right-1 bg-red-500 text-white w-4 h-4 p-0 flex items-center justify-center rounded-full text-[8px]">{stats.pendingEvidence}</Badge>}
@@ -365,16 +404,16 @@ export default function ClientDetailPage() {
                       <CardContent>
                         <div className="grid grid-cols-3 gap-2 text-center">
                           <div className="p-2 bg-green-50 rounded-lg">
-                            <p className="text-[10px] text-green-600 font-bold uppercase">Concluídos</p>
+                            <p className="text-[9px] text-green-600 font-bold uppercase">Concluídos</p>
                             <p className="text-lg font-bold text-green-700">{completed}</p>
                           </div>
                           <div className="p-2 bg-blue-50 rounded-lg">
-                            <p className="text-[10px] text-blue-600 font-bold uppercase">Em Trilha</p>
+                            <p className="text-[9px] text-blue-600 font-bold uppercase">Em Trilha</p>
                             <p className="text-lg font-bold text-blue-700">{inProgress}</p>
                           </div>
                           <div className="p-2 bg-orange-50 rounded-lg">
-                            <p className="text-[10px] text-orange-600 font-bold uppercase">Validando</p>
-                            <p className="text-lg font-bold text-green-700">{waitingMeet}</p>
+                            <p className="text-[9px] text-orange-600 font-bold uppercase">Validando</p>
+                            <p className="text-lg font-bold text-orange-700">{waitingMeet}</p>
                           </div>
                         </div>
                       </CardContent>
@@ -456,6 +495,105 @@ export default function ClientDetailPage() {
               </div>
             </TabsContent>
 
+            {/* ABA: PROGRESSO (NOVA) */}
+            <TabsContent value="progress" className="space-y-6">
+              {members.filter(m => m.active && m.uid).map(member => {
+                const userAreas = member.areas || [];
+                const role = member.clientAccessType === 'master' ? 'client_master' : 'client_participant';
+                
+                // Módulos acessíveis por fase
+                const progressByPhase = journeyPhases.map(phase => {
+                  const accessible = phase.modules.filter(m => canAccessModule(role, userAreas, m));
+                  const completedCount = accessible.filter(m => 
+                    allModuleProgress.some(p => p.uid === member.uid && p.moduleId === m.id && p.status === 'completed')
+                  ).length;
+                  const phaseStatus = allPhaseProgress.find(p => p.uid === member.uid && p.phaseId === phase.id)?.status || 'Locked';
+                  
+                  return { phase, accessible, completedCount, status: phaseStatus };
+                }).filter(p => p.accessible.length > 0);
+
+                const totalAcc = progressByPhase.reduce((acc, curr) => acc + curr.accessible.length, 0);
+                const totalComp = progressByPhase.reduce((acc, curr) => acc + curr.completedCount, 0);
+                const globalPercent = totalAcc > 0 ? Math.round((totalComp / totalAcc) * 100) : 0;
+
+                const isExpanded = expandedMember === member.uid;
+
+                return (
+                  <Card key={member.uid} className="border-none shadow-sm overflow-hidden">
+                    <div 
+                      className="p-6 cursor-pointer hover:bg-slate-50 transition-colors flex flex-col md:flex-row justify-between items-center gap-6"
+                      onClick={() => setExpandedMember(isExpanded ? null : member.uid!)}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center font-bold text-lg">
+                          {member.name.substring(0,2).toUpperCase()}
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-slate-900">{member.name}</h4>
+                          <p className="text-xs text-slate-400 capitalize">{member.areas.join(', ')}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex-1 max-w-md w-full px-6">
+                        <div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase mb-1">
+                          <span>Andamento Individual</span>
+                          <span>{globalPercent}% ({totalComp}/{totalAcc})</span>
+                        </div>
+                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-primary transition-all duration-500" style={{ width: `${globalPercent}%` }} />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-4">
+                        <Badge variant="secondary" className="text-[10px] h-6 uppercase font-bold tracking-tighter">
+                          {progressByPhase.find(p => p.status !== 'Completed')?.phase.title || 'Concluído'}
+                        </Badge>
+                        {isExpanded ? <ChevronDown className="w-5 h-5 text-slate-300" /> : <ChevronRight className="w-5 h-5 text-slate-300" />}
+                      </div>
+                    </div>
+
+                    {isExpanded && (
+                      <div className="border-t bg-slate-50/50 p-6 space-y-6 animate-in slide-in-from-top-2 duration-300">
+                        {progressByPhase.map(p => (
+                          <div key={p.phase.id} className="space-y-3">
+                            <div className="flex justify-between items-center px-1">
+                              <h5 className="text-xs font-bold text-slate-700 uppercase tracking-widest">{p.phase.title}</h5>
+                              <Badge variant="outline" className="text-[9px] bg-white">{p.status}</Badge>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {p.accessible.map(mod => {
+                                const prog = allModuleProgress.find(mp => mp.uid === member.uid && mp.moduleId === mod.id);
+                                const isDone = prog?.status === 'completed';
+                                
+                                return (
+                                  <div key={mod.id} className={cn(
+                                    "p-3 rounded-xl border bg-white flex items-center justify-between gap-3 shadow-sm",
+                                    isDone ? "border-green-100" : "border-slate-100"
+                                  )}>
+                                    <div className="overflow-hidden">
+                                      <p className="text-[10px] font-bold text-slate-800 truncate leading-none mb-1">{mod.title}</p>
+                                      <p className="text-[8px] text-slate-400 uppercase tracking-tighter">{mod.isRequired ? 'Obrigatório' : 'Opcional'}</p>
+                                    </div>
+                                    <div className="shrink-0">
+                                      {isDone ? (
+                                        <div className="bg-green-100 p-1 rounded-full"><Check className="w-3 h-3 text-green-600" /></div>
+                                      ) : (
+                                        <div className="bg-slate-50 p-1 rounded-full"><Clock className="w-3 h-3 text-slate-300" /></div>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </Card>
+                );
+              })}
+            </TabsContent>
+
             {/* ABA: EVIDÊNCIAS */}
             <TabsContent value="evidence">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -496,6 +634,13 @@ export default function ClientDetailPage() {
                             <Button variant="ghost" size="icon" className="h-8 w-8"><ExternalLink className="w-4 h-4" /></Button>
                           </div>
                           
+                          {ev.evidenceStatus === 'approved' && (
+                             <div className="bg-green-50/50 p-2 rounded border border-green-100 flex items-center gap-2">
+                               <CheckCircle2 className="w-3 h-3 text-green-600" />
+                               <span className="text-[9px] font-bold text-green-700 uppercase tracking-tighter">Evidência validada pelo especialista</span>
+                             </div>
+                          )}
+
                           {ev.reviewComment && (
                              <div className="space-y-2">
                                 <Label className="text-[10px] font-bold text-slate-400 uppercase">Parecer do Implantador:</Label>
