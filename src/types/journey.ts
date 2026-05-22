@@ -71,8 +71,6 @@ export interface ImplementationMember {
   role: 'implementation_master' | 'participant' | 'observer';
   clientAccessType?: 'master' | 'participant';
   areas: AreaType[];
-  requiredForMeetings: string[];
-  isRequiredParticipant: boolean;
   inviteStatus: 'pending' | 'accepted' | 'expired' | 'canceled';
   active: boolean;
   acceptedAt?: any;

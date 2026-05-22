@@ -17,7 +17,7 @@ import Link from "next/link";
 import { AreaType } from "@/types/journey";
 
 const participationOptions = [
-  { label: "Responsável principal pela implantação", areas: ["gestao", "todos"] as AreaType[] },
+  { label: "Responsável principal pela implantação", areas: ["todos"] as AreaType[] },
   { label: "Financeiro", areas: ["financeiro", "relatorios"] as AreaType[] },
   { label: "Operacional", areas: ["operacional"] as AreaType[] },
   { label: "Comercial", areas: ["cadastros", "operacional", "relatorios"] as AreaType[] },
@@ -91,6 +91,7 @@ export default function RegisterPage() {
           .flatMap(opt => opt.areas)
       ));
 
+      // 1. Create User Document with pending status
       await setDoc(doc(db, "users", user.uid), {
         uid: user.uid,
         name: formData.name,
@@ -103,6 +104,7 @@ export default function RegisterPage() {
         updatedAt: serverTimestamp(),
       });
 
+      // 2. Create Access Request
       await addDoc(collection(db, "accessRequests"), {
         uid: user.uid,
         name: formData.name,
@@ -121,17 +123,13 @@ export default function RegisterPage() {
         justification: formData.justification,
         status: "pending",
         source: "self_registration",
-        reviewedByUid: null,
-        reviewComment: null,
-        matchedCompanyId: null,
-        matchedImplementationId: null,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
 
       toast({ 
         title: "Solicitação enviada!", 
-        description: "Seus dados foram registrados com sucesso. Aguarde a análise da nossa equipe." 
+        description: "Seus dados foram registrados. Aguarde a validação." 
       });
       
       router.push("/pending-approval");
@@ -156,19 +154,16 @@ export default function RegisterPage() {
           <div className="bg-primary text-white w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
             <Rocket className="w-8 h-8" />
           </div>
-          <h1 className="text-3xl font-headline font-bold text-slate-900">Solicitar acesso à implantação</h1>
+          <h1 className="text-3xl font-headline font-bold text-slate-900">Solicitar Acesso</h1>
           <p className="text-slate-500 mt-2 max-w-md mx-auto">
-            Preencha os dados abaixo para solicitar acesso à Jornada Guiada de Implantação 2tech. 
-            Nossa equipe validará as informações antes de liberar seu acesso.
+            Preencha os dados abaixo para iniciar sua jornada 2tech.
           </p>
         </div>
 
         <form onSubmit={handleSubmit}>
           <div className="space-y-6">
             <Card className="border-none shadow-md">
-              <CardHeader>
-                <CardTitle className="text-lg">1. Dados Pessoais</CardTitle>
-              </CardHeader>
+              <CardHeader><CardTitle className="text-lg">1. Dados Pessoais</CardTitle></CardHeader>
               <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="name">Nome completo</Label>
@@ -190,9 +185,7 @@ export default function RegisterPage() {
             </Card>
 
             <Card className="border-none shadow-md">
-              <CardHeader>
-                <CardTitle className="text-lg">2. Dados da Empresa</CardTitle>
-              </CardHeader>
+              <CardHeader><CardTitle className="text-lg">2. Dados da Empresa</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -218,61 +211,36 @@ export default function RegisterPage() {
                   <Label htmlFor="website">Site (opcional)</Label>
                   <Input id="website" value={formData.website} onChange={handleInputChange} />
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="mainContactName">Nome do responsável (se souber)</Label>
-                    <Input id="mainContactName" value={formData.mainContactName} onChange={handleInputChange} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="mainContactEmail">E-mail do responsável</Label>
-                    <Input id="mainContactEmail" value={formData.mainContactEmail} onChange={handleInputChange} />
-                  </div>
-                </div>
               </CardContent>
             </Card>
 
             <Card className="border-none shadow-md">
-              <CardHeader>
-                <CardTitle className="text-lg">3. Participação na Implantação</CardTitle>
-              </CardHeader>
+              <CardHeader><CardTitle className="text-lg">3. Participação na Implantação</CardTitle></CardHeader>
               <CardContent className="space-y-6">
                 <div className="space-y-3">
-                  <Label>Qual será sua participação na implantação?</Label>
+                  <Label>Qual será sua participação?</Label>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {participationOptions.map((opt) => {
-                      const sanitizedId = `part-${opt.label.replace(/[^a-zA-Z0-9]/g, '-')}`;
-                      return (
-                        <div key={opt.label} className="flex items-center space-x-2 border p-2 rounded-lg hover:bg-slate-50 transition-colors">
-                          <Checkbox 
-                            id={sanitizedId} 
-                            checked={selectedParticipations.includes(opt.label)}
-                            onCheckedChange={() => handleParticipationToggle(opt.label)}
-                          />
-                          <Label htmlFor={sanitizedId} className="text-xs cursor-pointer">{opt.label}</Label>
-                        </div>
-                      );
-                    })}
+                    {participationOptions.map((opt) => (
+                      <div key={opt.label} className="flex items-center space-x-2 border p-2 rounded-lg hover:bg-slate-50 transition-colors">
+                        <Checkbox 
+                          id={`opt-${opt.label}`} 
+                          checked={selectedParticipations.includes(opt.label)}
+                          onCheckedChange={() => handleParticipationToggle(opt.label)}
+                        />
+                        <Label htmlFor={`opt-${opt.label}`} className="text-xs cursor-pointer">{opt.label}</Label>
+                      </div>
+                    ))}
                   </div>
                 </div>
-
                 <div className="space-y-2">
-                  <Label htmlFor="justification">Justificativa</Label>
-                  <Textarea 
-                    id="justification" 
-                    placeholder="Exemplo: Sou responsável pelo financeiro da empresa..."
-                    className="min-h-[100px]"
-                    value={formData.justification}
-                    onChange={handleInputChange}
-                    required
-                  />
+                  <Label htmlFor="justification">Por que você precisa de acesso?</Label>
+                  <Textarea id="justification" value={formData.justification} onChange={handleInputChange} required className="min-h-[100px]" />
                 </div>
               </CardContent>
             </Card>
 
             <Card className="border-none shadow-md">
-              <CardHeader>
-                <CardTitle className="text-lg">4. Segurança</CardTitle>
-              </CardHeader>
+              <CardHeader><CardTitle className="text-lg">4. Segurança</CardTitle></CardHeader>
               <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="password">Crie uma Senha</Label>
@@ -286,16 +254,12 @@ export default function RegisterPage() {
               <CardFooter className="bg-slate-50 rounded-b-lg py-6 border-t">
                 <Button type="submit" className="w-full h-12 font-bold text-lg" disabled={loading}>
                   {loading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <ShieldCheck className="w-5 h-5 mr-2" />}
-                  {loading ? "Enviando solicitação..." : "Enviar solicitação de acesso"}
+                  Enviar Solicitação
                 </Button>
               </CardFooter>
             </Card>
           </div>
         </form>
-
-        <p className="text-center text-xs text-slate-400">
-          Esse cadastro não libera acesso automaticamente. A entrada na implantação depende de aprovação da equipe responsável.
-        </p>
       </div>
     </div>
   );

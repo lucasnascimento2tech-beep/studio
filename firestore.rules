@@ -34,7 +34,7 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read: if isAuthenticated() && (request.auth.uid == uid || isAdmin() || isImplantador());
-      allow create: if isAdmin() || (isAuthenticated() && request.auth.uid == uid);
+      allow create: if true; // Permite criação inicial no registro
       allow update: if isAdmin() || isImplantador() || (
         isAuthenticated() && 
         request.auth.uid == uid && 
@@ -51,7 +51,6 @@ service cloud.firestore {
     }
 
     match /companies/{companyId} {
-      // Implantador só lê se for o responsável pela empresa ou se for admin
       allow read: if isAdmin() || belongsToCompany(companyId) || (isImplantador() && (
         resource.data.mainImplantadorUid == request.auth.uid || 
         get(/databases/$(database)/documents/implementations/$(resource.data.activeImplementationId)).data.assignedImplantadorUid == request.auth.uid
@@ -60,7 +59,6 @@ service cloud.firestore {
     }
 
     match /implementations/{implId} {
-      // Implantador só lê se for o responsável pela implantação ou se for admin
       allow read: if isAdmin() || (isImplantador() && resource.data.assignedImplantadorUid == request.auth.uid) || belongsToImplementation(implId);
       allow update: if isAdmin() || (isImplantador() && resource.data.assignedImplantadorUid == request.auth.uid);
       allow create, delete: if isAdmin() || isImplantador();
@@ -87,10 +85,19 @@ service cloud.firestore {
       );
     }
 
+    match /phaseProgress/{progressId} {
+      allow read: if isAdmin() || isImplantador() || belongsToImplementation(resource.data.implementationId);
+      allow write: if isAuthenticated() && (
+        request.auth.uid == request.resource.data.uid || 
+        isAdmin() || 
+        isImplantador()
+      );
+    }
+
     match /meetings/{meetingId} {
       allow read: if isAdmin() || isImplantador() || belongsToImplementation(resource.data.implementationId);
-      allow create: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(request.resource.data.companyId));
-      allow update: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(resource.data.companyId));
+      allow create: if isAdmin() || isImplantador() || belongsToImplementation(request.resource.data.implementationId);
+      allow update: if isAdmin() || isImplantador() || belongsToImplementation(resource.data.implementationId);
     }
 
     match /quizSubmissions/{subId} {
