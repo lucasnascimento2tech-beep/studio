@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "create:admin": "node scripts/createAdminUser.mjs"
+    "create:admin": "node scripts/createAdminUser.mjs",
+    "validate:journey": "node scripts/validateJourneyData.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^4.1.3",
