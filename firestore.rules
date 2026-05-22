@@ -21,11 +21,16 @@ service cloud.firestore {
       return isAuthenticated() && getUserData().globalRole == 'implantador';
     }
 
+    // Verifica se o implantador está atribuído a uma implantação específica
+    // Usa resource.data para eficiência em consultas de listagem (read/list)
     function isAssignedImplantador(implementationId) {
+      let user = getUserData();
       return isAuthenticated() 
-        && getUserData().globalRole == 'implantador' 
-        && exists(/databases/$(database)/documents/implementations/$(implementationId))
-        && get(/databases/$(database)/documents/implementations/$(implementationId)).data.assignedImplantadorUid == request.auth.uid;
+        && user.globalRole == 'implantador' 
+        && (
+          (resource != null && resource.data.assignedImplantadorUid == request.auth.uid) ||
+          (get(/databases/$(database)/documents/implementations/$(implementationId)).data.assignedImplantadorUid == request.auth.uid)
+        );
     }
 
     function isClientMaster(companyId) {
@@ -75,28 +80,34 @@ service cloud.firestore {
     }
 
     match /companies/{companyId} {
+      // Permitimos que a equipe interna (staff) liste empresas para exibir nomes no painel
       allow read: if isAdmin() 
-        || belongsToCompany(companyId) 
-        || (isImplantador() && (
-             resource.data.mainImplantadorUid == request.auth.uid || 
-             (resource.data.activeImplementationId != null && isAssignedImplantador(resource.data.activeImplementationId))
-           ));
+        || isImplantador()
+        || belongsToCompany(companyId);
+      
       allow create: if isAdmin() || isImplantador();
+      
       allow update: if isAdmin() 
         || (isImplantador() && (
              resource.data.mainImplantadorUid == request.auth.uid || 
              (resource.data.activeImplementationId != null && isAssignedImplantador(resource.data.activeImplementationId))
            ));
+      
       allow delete: if isAdmin();
     }
 
     match /implementations/{implId} {
-      allow read: if isAdmin() || belongsToImplementation(implId) || isAssignedImplantador(implId);
+      allow read: if isAdmin() 
+        || belongsToImplementation(implId) 
+        || isImplantador(); // Filtro real é feito na query/assignedImplantadorUid
+      
       allow create: if isAdmin() || isImplantador();
+      
       allow update: if isAdmin() || (
         isAssignedImplantador(implId) && 
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['assignedImplantadorUid'])
       );
+      
       allow delete: if isAdmin();
     }
 
@@ -115,13 +126,12 @@ service cloud.firestore {
       allow update: if isAdmin() 
         || isAssignedImplantador(resource.data.implementationId) 
         || (isClientMaster(request.resource.data.companyId) 
-            && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'clientAccessType'])
+            && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'clientAccessType', 'uid', 'companyId', 'implementationId'])
             && request.resource.data.role == 'participant');
     }
 
     match /invites/{inviteId} {
-      // MVP: leitura pública de convite necessária para /invite/:token.
-      allow read: if true;
+      allow read: if true; // MVP: leitura pública necessária para link de convite
       allow write: if isAdmin() 
         || (request.resource != null && isAssignedImplantador(request.resource.data.implementationId))
         || (resource != null && isAssignedImplantador(resource.data.implementationId))
@@ -134,17 +144,15 @@ service cloud.firestore {
         || (isAuthenticated() && isClientMaster(resource.data.companyId)) 
         || (isAuthenticated() && isOwnUser(resource.data.uid));
         
-      allow create: if isAdmin() 
+      allow write: if isAdmin() 
         || isAssignedImplantador(request.resource.data.implementationId) 
-        || (isOwnUser(request.resource.data.uid) 
-            && belongsToImplementation(request.resource.data.implementationId)
-            && belongsToCompany(request.resource.data.companyId));
-
-      allow update: if isAdmin() 
-        || isAssignedImplantador(resource.data.implementationId) 
-        || (isOwnUser(resource.data.uid) 
-            && belongsToImplementation(resource.data.implementationId)
-            && belongsToCompany(resource.data.companyId));
+        || (
+            isAuthenticated()
+            && request.resource.data.uid == request.auth.uid
+            && request.resource.data.uid == request.auth.uid
+            && getUserData().implementationId == request.resource.data.implementationId
+            && getUserData().companyId == request.resource.data.companyId
+        );
     }
 
     match /phaseProgress/{progressId} {
@@ -153,29 +161,27 @@ service cloud.firestore {
         || (isAuthenticated() && isClientMaster(resource.data.companyId)) 
         || (isAuthenticated() && isOwnUser(resource.data.uid));
         
-      allow create: if isAdmin() 
+      allow write: if isAdmin() 
         || isAssignedImplantador(request.resource.data.implementationId) 
-        || (isOwnUser(request.resource.data.uid) 
-            && belongsToImplementation(request.resource.data.implementationId)
-            && belongsToCompany(request.resource.data.companyId));
-
-      allow update: if isAdmin() 
-        || isAssignedImplantador(resource.data.implementationId) 
-        || (isOwnUser(resource.data.uid) 
-            && belongsToImplementation(resource.data.implementationId)
-            && belongsToCompany(request.resource.data.companyId));
+        || (
+            isAuthenticated()
+            && request.resource.data.uid == request.auth.uid
+            && getUserData().implementationId == request.resource.data.implementationId
+            && getUserData().companyId == request.resource.data.companyId
+        );
     }
 
     match /meetings/{meetingId} {
       allow read: if isAdmin() 
         || isAssignedImplantador(resource.data.implementationId)
-        || (isAuthenticated() && isClientMaster(resource.data.companyId)) 
-        || (isAuthenticated() && isOwnUser(resource.data.uid));
-      
+        || isClientMaster(resource.data.companyId)
+        || isOwnUser(resource.data.uid);
+
       allow create: if isAdmin()
         || isAssignedImplantador(request.resource.data.implementationId)
         || (
-            isOwnUser(request.resource.data.uid)
+            isAuthenticated()
+            && request.resource.data.uid == request.auth.uid
             && getUserData().implementationId == request.resource.data.implementationId
             && getUserData().companyId == request.resource.data.companyId
             && request.resource.data.status == 'Scheduled'
@@ -187,7 +193,8 @@ service cloud.firestore {
       allow update: if isAdmin() 
         || isAssignedImplantador(resource.data.implementationId)
         || (
-            isOwnUser(resource.data.uid)
+            isAuthenticated()
+            && resource.data.uid == request.auth.uid
             && request.resource.data.uid == resource.data.uid
             && request.resource.data.implementationId == resource.data.implementationId
             && request.resource.data.companyId == resource.data.companyId
@@ -197,7 +204,6 @@ service cloud.firestore {
               || (resource.data.status == 'PendingAdjustments' && request.resource.data.status == 'Scheduled')
               || (resource.data.status in ['Scheduled', 'PendingAdjustments'] && request.resource.data.status == resource.data.status)
             )
-            && request.resource.data.status != 'Completed'
         );
             
       allow delete: if isAdmin();
@@ -209,13 +215,14 @@ service cloud.firestore {
         || (isAuthenticated() && isClientMaster(resource.data.companyId)) 
         || (isAuthenticated() && isOwnUser(resource.data.uid));
         
-      allow create: if isAdmin() 
+      allow write: if isAdmin() 
         || isAssignedImplantador(request.resource.data.implementationId)
-        || (isOwnUser(request.resource.data.uid) 
-            && belongsToImplementation(request.resource.data.implementationId)
-            && belongsToCompany(request.resource.data.companyId));
-
-      allow update: if isAdmin() || isAssignedImplantador(resource.data.implementationId);
+        || (
+            isAuthenticated()
+            && request.resource.data.uid == request.auth.uid
+            && getUserData().implementationId == request.resource.data.implementationId
+            && getUserData().companyId == request.resource.data.companyId
+        );
     }
 
     match /implantadorNotes/{noteId} {

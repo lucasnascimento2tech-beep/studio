@@ -44,9 +44,10 @@ export default function ImplantadorPage() {
 
   const isAdmin = user?.globalRole === 'admin_2tech';
 
-  // 1. Listener: Empresas
+  // 1. Listener: Empresas (Limitamos o carregamento para staff)
   useEffect(() => {
     if (!isMounted || !user?.uid) return;
+    if (user.globalRole !== 'admin_2tech' && user.globalRole !== 'implantador') return;
 
     const unsubscribe = onSnapshot(collection(db, "companies"), (snap) => {
       const companyMap: Record<string, any> = {};
@@ -57,7 +58,7 @@ export default function ImplantadorPage() {
     });
 
     return () => unsubscribe();
-  }, [db, user?.uid, isMounted]);
+  }, [db, user?.uid, user?.globalRole, isMounted]);
 
   // 2. Listener: Implantações
   useEffect(() => {
@@ -126,6 +127,7 @@ export default function ImplantadorPage() {
   // 4. Listener: Solicitações de Acesso
   useEffect(() => {
     if (!isMounted || !user?.uid) return;
+    if (user.globalRole !== 'admin_2tech' && user.globalRole !== 'implantador') return;
 
     const qRequests = query(collection(db, "accessRequests"), where("status", "==", "pending"));
     const unsubscribe = onSnapshot(qRequests, (snapshot) => {
@@ -133,7 +135,7 @@ export default function ImplantadorPage() {
     });
 
     return () => unsubscribe();
-  }, [db, user?.uid, isMounted]);
+  }, [db, user?.uid, user?.globalRole, isMounted]);
 
   const handleApprove = async (meet: any) => {
     const isAssigned = implementations.some(i => i.id === meet.implementationId);
