@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -14,8 +13,7 @@ import {
   where, 
   onSnapshot, 
   getDocs, 
-  getDoc,
-  updateDoc
+  getDoc
 } from 'firebase/firestore';
 import { useUser } from '@/firebase';
 
@@ -30,11 +28,18 @@ export function useJourneyStore() {
     implantadorNotes: {},
     validationAnswers: {}
   });
-  const [isLoaded, setIsLoaded] = useState(false);
+  
+  const [loadedSections, setLoadedSections] = useState({
+    modules: false,
+    phases: false,
+    meetings: false
+  });
 
-  // Helper functions for IDs
-  const getModuleProgressId = (moduleId: string) => 
-    `${user?.implementationId}_${user?.uid}_${moduleId}`;
+  const isLoaded = loadedSections.modules && loadedSections.phases && loadedSections.meetings;
+
+  // Helpers para IDs padronizados
+  const getModuleProgressId = (modId: string) => 
+    `${user?.implementationId}_${user?.uid}_${modId}`;
   const getPhaseProgressId = (phaseId: string) => 
     `${user?.implementationId}_${user?.uid}_${phaseId}`;
   const getMeetingId = (phaseId: string) => 
@@ -49,27 +54,22 @@ export function useJourneyStore() {
   const getGenericModuleProgressId = (implId: string, uid: string, modId: string) => 
     `${implId}_${uid}_${modId}`;
 
+  // 1. Efeito de Inicialização (Fase 0)
   useEffect(() => {
-    if (!user?.uid || !user?.implementationId) {
-      if (!user && !isLoaded) setIsLoaded(true);
-      return;
-    }
+    if (!user?.uid || !user?.implementationId) return;
+    if (['admin_2tech', 'implantador', 'client_pending'].includes(user.globalRole)) return;
 
     const db = getFirestore();
-    const { uid, implementationId, companyId, globalRole } = user;
-
     const initFirstPhase = async () => {
-      if (globalRole === 'admin_2tech' || globalRole === 'implantador' || globalRole === 'client_pending') return;
-      
       const firstPhaseId = "fase-0";
       const phaseRef = doc(db, "phaseProgress", getPhaseProgressId(firstPhaseId));
       const phaseSnap = await getDoc(phaseRef);
       
       if (!phaseSnap.exists()) {
         await setDoc(phaseRef, {
-          uid,
-          implementationId,
-          companyId: companyId || "",
+          uid: user.uid,
+          implementationId: user.implementationId,
+          companyId: user.companyId || "",
           phaseId: firstPhaseId,
           status: "InProgress",
           progressPercent: 0,
@@ -79,14 +79,27 @@ export function useJourneyStore() {
       }
     };
     initFirstPhase();
+  }, [user?.uid, user?.implementationId, user?.globalRole]);
 
-    const moduleQuery = query(
+  // 2. Listener: moduleProgress
+  useEffect(() => {
+    if (!user?.uid || !user?.implementationId) {
+      setLoadedSections(prev => ({ ...prev, modules: true }));
+      return;
+    }
+    if (['admin_2tech', 'implantador', 'client_pending'].includes(user.globalRole)) {
+      setLoadedSections(prev => ({ ...prev, modules: true }));
+      return;
+    }
+
+    const db = getFirestore();
+    const q = query(
       collection(db, "moduleProgress"),
-      where("implementationId", "==", implementationId),
-      where("uid", "==", uid)
+      where("implementationId", "==", user.implementationId),
+      where("uid", "==", user.uid)
     );
 
-    const unsubscribeModules = onSnapshot(moduleQuery, (snapshot) => {
+    const unsubscribe = onSnapshot(q, (snapshot) => {
       const completedModules: string[] = [];
       const uploadedEvidence: Record<string, any> = {};
       const validationAnswers: Record<string, string> = {};
@@ -108,58 +121,104 @@ export function useJourneyStore() {
         }
       });
 
-      const phaseQuery = query(
-        collection(db, "phaseProgress"),
-        where("implementationId", "==", implementationId),
-        where("uid", "==", uid)
-      );
-
-      const unsubscribePhases = onSnapshot(phaseQuery, (phaseSnap) => {
-        const phaseStatus: Record<string, PhaseStatus> = {};
-        phaseSnap.docs.forEach(d => {
-          const data = d.data();
-          phaseStatus[data.phaseId] = data.status;
-        });
-
-        const meetingsQuery = query(
-          collection(db, "meetings"),
-          where("implementationId", "==", implementationId),
-          where("uid", "==", uid)
-        );
-
-        const unsubscribeMeetings = onSnapshot(meetingsQuery, (meetSnap) => {
-          const meetingStatus: Record<string, any> = {};
-          meetSnap.docs.forEach(d => {
-            const data = d.data();
-            meetingStatus[data.phaseId] = {
-              status: data.status,
-              scheduledDate: data.scheduledDate,
-              scheduledTime: data.scheduledTime,
-              notes: data.notes,
-              implantadorComment: data.implantadorComment || data.reviewComment || ""
-            };
-          });
-
-          setProgress(prev => ({
-            ...prev,
-            completedModules,
-            uploadedEvidence,
-            phaseStatus,
-            meetingStatus,
-            validationAnswers,
-            isLoaded: true
-          }));
-          setIsLoaded(true);
-        });
-
-        return () => unsubscribeMeetings();
-      });
-
-      return () => unsubscribePhases();
+      setProgress(prev => ({
+        ...prev,
+        completedModules,
+        uploadedEvidence,
+        validationAnswers
+      }));
+      setLoadedSections(prev => ({ ...prev, modules: true }));
+    }, (error) => {
+      console.error("Error listening to modules:", error);
+      setLoadedSections(prev => ({ ...prev, modules: true }));
     });
 
-    return () => unsubscribeModules();
-  }, [user?.uid, user?.implementationId]);
+    return () => unsubscribe();
+  }, [user?.uid, user?.implementationId, user?.globalRole]);
+
+  // 3. Listener: phaseProgress
+  useEffect(() => {
+    if (!user?.uid || !user?.implementationId) {
+      setLoadedSections(prev => ({ ...prev, phases: true }));
+      return;
+    }
+    if (['admin_2tech', 'implantador', 'client_pending'].includes(user.globalRole)) {
+      setLoadedSections(prev => ({ ...prev, phases: true }));
+      return;
+    }
+
+    const db = getFirestore();
+    const q = query(
+      collection(db, "phaseProgress"),
+      where("implementationId", "==", user.implementationId),
+      where("uid", "==", user.uid)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const phaseStatus: Record<string, PhaseStatus> = {};
+      snapshot.docs.forEach(d => {
+        const data = d.data();
+        phaseStatus[data.phaseId] = data.status;
+      });
+
+      setProgress(prev => ({
+        ...prev,
+        phaseStatus
+      }));
+      setLoadedSections(prev => ({ ...prev, phases: true }));
+    }, (error) => {
+      console.error("Error listening to phases:", error);
+      setLoadedSections(prev => ({ ...prev, phases: true }));
+    });
+
+    return () => unsubscribe();
+  }, [user?.uid, user?.implementationId, user?.globalRole]);
+
+  // 4. Listener: meetings
+  useEffect(() => {
+    if (!user?.uid || !user?.implementationId) {
+      setLoadedSections(prev => ({ ...prev, meetings: true }));
+      return;
+    }
+    if (['admin_2tech', 'implantador', 'client_pending'].includes(user.globalRole)) {
+      setLoadedSections(prev => ({ ...prev, meetings: true }));
+      return;
+    }
+
+    const db = getFirestore();
+    const q = query(
+      collection(db, "meetings"),
+      where("implementationId", "==", user.implementationId),
+      where("uid", "==", user.uid)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const meetingStatus: Record<string, any> = {};
+      snapshot.docs.forEach(d => {
+        const data = d.data();
+        meetingStatus[data.phaseId] = {
+          status: data.status,
+          scheduledDate: data.scheduledDate,
+          scheduledTime: data.scheduledTime,
+          notes: data.notes,
+          implantadorComment: data.implantadorComment || data.reviewComment || ""
+        };
+      });
+
+      setProgress(prev => ({
+        ...prev,
+        meetingStatus
+      }));
+      setLoadedSections(prev => ({ ...prev, meetings: true }));
+    }, (error) => {
+      console.error("Error listening to meetings:", error);
+      setLoadedSections(prev => ({ ...prev, meetings: true }));
+    });
+
+    return () => unsubscribe();
+  }, [user?.uid, user?.implementationId, user?.globalRole]);
+
+  // --- Funções de Escrita e Ação (API Pública) ---
 
   const unlockNextPhaseForUser = async (targetUid: string, targetImplId: string, targetCompId: string, currentPhaseId: string) => {
     const db = getFirestore();
@@ -172,9 +231,9 @@ export function useJourneyStore() {
       const nextPhaseSnap = await getDoc(nextPhaseRef);
       
       const existingStatus = nextPhaseSnap.exists() ? nextPhaseSnap.data().status : null;
-      const blockingStatuses = ['Completed', 'Scheduled', 'WaitingApproval', 'PendingAdjustments', 'ReadyToSchedule'];
+      const nonOverwritableStatuses = ['Completed', 'Scheduled', 'WaitingApproval', 'PendingAdjustments', 'ReadyToSchedule'];
       
-      if (!nextPhaseSnap.exists() || !blockingStatuses.includes(existingStatus)) {
+      if (!nextPhaseSnap.exists() || !nonOverwritableStatuses.includes(existingStatus)) {
         await setDoc(nextPhaseRef, {
           uid: targetUid,
           implementationId: targetImplId,
@@ -365,7 +424,6 @@ export function useJourneyStore() {
     }, { merge: true });
   };
 
-  // Funções para Implantador/Admin
   const reviewEvidence = async (params: { 
     uid: string, 
     implId: string, 
