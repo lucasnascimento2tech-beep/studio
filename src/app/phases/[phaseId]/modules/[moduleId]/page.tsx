@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
@@ -64,7 +63,7 @@ export default function ModuleDetailPage() {
     if (module.requiresEvidence && !evidence) {
       toast({
         title: "Evidência Necessária",
-        description: "Por favor, anexe a evidência solicitada antes de concluir.",
+        description: "Por favor, realize o upload da evidência solicitada para validação.",
         variant: "destructive"
       });
       return;
@@ -72,8 +71,8 @@ export default function ModuleDetailPage() {
 
     if (trimmedAnswer.length < 5 && !isApproved) {
       toast({
-        title: "Resposta de Validação",
-        description: "Por favor, responda a pergunta de validação com pelo menos 5 caracteres.",
+        title: "Confirmação Pendente",
+        description: "Por favor, responda a pergunta de validação para confirmar seu aprendizado.",
         variant: "destructive"
       });
       return;
@@ -83,13 +82,13 @@ export default function ModuleDetailPage() {
     try {
       await completeModule(module.id, phase.id as string, effectiveAreas, trimmedAnswer);
       toast({
-        title: "Módulo Enviado!",
-        description: "Sua resposta foi enviada para análise do especialista.",
+        title: "Módulo Concluído!",
+        description: "Suas respostas foram enviadas para análise do especialista.",
       });
       
       router.push(`/phases/${phase.id}`);
     } catch (e) {
-      toast({ title: "Erro", description: "Não foi possível enviar seu progresso.", variant: "destructive" });
+      toast({ title: "Erro", description: "Não foi possível registrar seu progresso.", variant: "destructive" });
     } finally {
       setIsSubmitting(false);
     }
@@ -100,11 +99,11 @@ export default function ModuleDetailPage() {
       try {
         await uploadEvidence(module.id, e.target.files[0].name, phase.id as string);
         toast({
-          title: "Arquivo Registrado",
-          description: "Sua evidência foi enviada para análise.",
+          title: "Arquivo Anexado",
+          description: "Sua evidência prática foi enviada para análise.",
         });
       } catch (err) {
-        toast({ title: "Erro", description: "Falha ao registrar arquivo.", variant: "destructive" });
+        toast({ title: "Erro", description: "Falha ao registrar o arquivo.", variant: "destructive" });
       }
     }
   };
@@ -115,14 +114,14 @@ export default function ModuleDetailPage() {
         <div className="bg-white border-b py-4 shadow-sm">
           <div className="max-w-4xl mx-auto px-4">
             <Button variant="ghost" size="sm" asChild className="mb-4 text-slate-400 hover:text-primary">
-              <Link href={`/phases/${phase.id}`}><ArrowLeft className="w-4 h-4 mr-2" /> Voltar para {phase.title}</Link>
+              <Link href={`/phases/${phase.id}`}><ArrowLeft className="w-4 h-4 mr-2" /> Voltar para a Fase</Link>
             </Button>
             <div className="flex flex-col md:flex-row justify-between md:items-end gap-4">
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <Badge variant="secondary" className="bg-blue-50 text-primary border-blue-100 capitalize">{module.area}</Badge>
                   <Badge variant="outline" className="text-xs font-bold">{module.type}</Badge>
-                  {isApproved && <Badge className="bg-green-100 text-green-700 border-green-200">Aprovado pelo Especialista</Badge>}
+                  {isApproved && <Badge className="bg-green-100 text-green-700 border-green-200">Validado pelo Especialista</Badge>}
                   {isAdjustment && <Badge className="bg-red-100 text-red-700 border-red-200">Ajuste Solicitado</Badge>}
                 </div>
                 <h1 className="text-3xl font-headline font-bold text-primary">{module.title}</h1>
@@ -144,7 +143,7 @@ export default function ModuleDetailPage() {
                    <div className="bg-secondary/20 p-4 rounded-full mb-4 backdrop-blur-sm group-hover:bg-secondary/40 transition-colors">
                      <PlayCircle className="w-12 h-12 text-secondary" />
                    </div>
-                   <p className="font-bold text-lg tracking-tight">Assistir Vídeo Treinamento</p>
+                   <p className="font-bold text-lg tracking-tight">Treinamento em Vídeo</p>
                  </div>
               </div>
 
@@ -154,7 +153,7 @@ export default function ModuleDetailPage() {
                 
                 <div className="bg-slate-50 p-6 rounded-2xl border-none mb-8">
                   <h3 className="text-primary font-bold mb-4 flex items-center gap-2">
-                    <ClipboardList className="w-5 h-5 text-secondary" /> Passo a Passo
+                    <ClipboardList className="w-5 h-5 text-secondary" /> Passo a Passo da Etapa
                   </h3>
                   <ul className="space-y-4">
                     {module.steps.map((step, idx) => (
@@ -169,7 +168,7 @@ export default function ModuleDetailPage() {
                 {module.commonMistakes && (
                   <div className="bg-red-50 p-6 rounded-2xl border border-red-100 mb-6">
                      <h4 className="text-red-800 font-bold text-sm mb-3 flex items-center gap-2">
-                       <AlertTriangle className="w-4 h-4" /> Pontos de Atenção
+                       <AlertTriangle className="w-4 h-4" /> Pontos de Atenção (Evite Erros)
                      </h4>
                      <ul className="text-sm text-red-700 space-y-2 list-disc list-inside font-medium">
                        {module.commonMistakes.map((err, idx) => <li key={idx}>{err}</li>)}
@@ -181,7 +180,7 @@ export default function ModuleDetailPage() {
 
             <section className="bg-white p-8 rounded-2xl border shadow-sm">
               <h2 className="text-lg font-bold text-primary mb-4 flex items-center gap-2">
-                <ClipboardList className="w-5 h-5 text-secondary" /> Exercício de Fixação
+                <ClipboardList className="w-5 h-5 text-secondary" /> Etapa prática de fixação
               </h2>
               <div className="bg-blue-50/50 p-6 rounded-xl border border-blue-100 text-primary">
                 <p className="font-medium text-sm leading-relaxed">{module.practicalTask}</p>
@@ -196,11 +195,11 @@ export default function ModuleDetailPage() {
               </CardHeader>
               <CardContent className="space-y-4 text-xs pt-6">
                 <div className="flex justify-between">
-                  <span className="text-slate-400 font-bold uppercase tracking-tighter">Público</span>
+                  <span className="text-slate-400 font-bold uppercase tracking-tighter">Perfil Alvo</span>
                   <span className="font-bold text-primary">{module.audience}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400 font-bold uppercase tracking-tighter">Tempo</span>
+                  <span className="text-slate-400 font-bold uppercase tracking-tighter">Tempo Médio</span>
                   <span className="font-bold text-primary">{module.estimatedTime}</span>
                 </div>
               </CardContent>
@@ -208,13 +207,13 @@ export default function ModuleDetailPage() {
 
             <Card className={cn("shadow-xl border-2 transition-all duration-500", isApproved ? "border-green-200 bg-green-50/10" : isAdjustment ? "border-red-200 bg-red-50/10" : isCompleted ? "border-amber-200 bg-amber-50/10" : "border-slate-100 bg-white")}>
               <CardHeader>
-                <CardTitle className="text-base font-bold text-slate-800">Validação do Módulo</CardTitle>
+                <CardTitle className="text-base font-bold text-slate-800">Conclusão do Módulo</CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
                 {isAdjustment && evidence?.implantadorComment && (
                   <div className="bg-red-50 p-3 rounded-xl border border-red-100 mb-2">
                     <p className="text-[10px] font-bold text-red-600 uppercase mb-1 flex items-center gap-1">
-                      <AlertTriangle className="w-3 h-3" /> Feedback do Implantador:
+                      <AlertTriangle className="w-3 h-3" /> Motivo do Ajuste:
                     </p>
                     <p className="text-xs text-red-800 italic leading-snug">"{evidence.implantadorComment}"</p>
                   </div>
@@ -223,7 +222,7 @@ export default function ModuleDetailPage() {
                 {module.requiresEvidence && (
                   <div className="space-y-3">
                     <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                      Evidência Exigida
+                      Evidência Prática Exigida
                     </Label>
                     <p className="text-[11px] text-slate-500 mb-2 leading-tight italic">{module.evidenceDescription}</p>
                     {evidence ? (
@@ -241,7 +240,7 @@ export default function ModuleDetailPage() {
                           isAdjustment ? "border-red-200 text-red-600" :
                           "border-amber-200 text-amber-600"
                         )}>
-                          {isApproved ? 'Aprovado' : isAdjustment ? 'Corrigir' : 'Em Análise'}
+                          {isApproved ? 'Validado' : isAdjustment ? 'Corrigir' : 'Em Análise'}
                         </Badge>
                       </div>
                     ) : null}
@@ -256,7 +255,7 @@ export default function ModuleDetailPage() {
                         <Button variant="outline" className="w-full h-20 border-dashed border-2 flex flex-col gap-1 group-hover:border-primary group-hover:bg-primary/5 transition-all rounded-xl">
                           <Upload className="w-5 h-5 text-slate-300 group-hover:text-primary mb-1" />
                           <span className="text-[10px] font-bold text-slate-400 group-hover:text-primary">
-                            {evidence ? 'Substituir arquivo' : 'Anexar Print da Tela'}
+                            {evidence ? 'Substituir anexo' : 'Anexar evidência da etapa'}
                           </span>
                         </Button>
                       </div>
@@ -266,13 +265,13 @@ export default function ModuleDetailPage() {
 
                 <div className="space-y-3">
                   <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                    Resposta de Validação
+                    Confirmação de Aprendizado
                   </Label>
                   <p className="text-xs font-bold text-primary mb-2 italic">"{module.validationQuestion}"</p>
                   <textarea 
                     disabled={isApproved}
                     className="w-full text-xs p-4 rounded-xl border-2 bg-slate-50 focus:bg-white focus:border-primary focus:ring-4 focus:ring-primary/5 transition-all min-h-[120px] resize-none outline-none"
-                    placeholder="Responda aqui para confirmar seu aprendizado..."
+                    placeholder="Sua resposta de validação aqui..."
                     value={valAnswer}
                     onChange={(e) => setValAnswer(e.target.value)}
                   />
@@ -281,7 +280,7 @@ export default function ModuleDetailPage() {
               <CardFooter>
                 {isApproved ? (
                   <div className="w-full flex items-center justify-center gap-2 text-green-700 font-bold bg-green-100 py-4 rounded-xl text-sm border border-green-200">
-                    <CheckCircle2 className="w-5 h-5" /> Módulo Validado
+                    <CheckCircle2 className="w-5 h-5" /> Etapa Validada
                   </div>
                 ) : (
                   <Button 
@@ -293,7 +292,7 @@ export default function ModuleDetailPage() {
                     disabled={isSubmitting}
                   >
                     {isSubmitting ? <Loader2 className="animate-spin mr-2" /> : 
-                     isAdjustment ? "Reenviar para Análise" : "Enviar para Análise"}
+                     isAdjustment ? "Reenviar para Revisão" : "Finalizar Etapa"}
                   </Button>
                 )}
               </CardFooter>

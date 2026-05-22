@@ -1,4 +1,3 @@
-
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -45,12 +44,12 @@ export function PhaseCard({ phase, status }: PhaseCardProps) {
           </Badge>
           {phase.hasMeeting && (
             <Badge variant="secondary" className="bg-orange-50 text-orange-700 border-orange-100 text-[10px] font-bold">
-              Encontro
+              Encontro Guiado
             </Badge>
           )}
         </div>
         <CardTitle className={cn("text-xl font-headline font-bold", isLocked ? "text-gray-400" : "text-primary")}>
-          {phase.order}. {phase.title}
+          Fase {phase.order}: {phase.title}
         </CardTitle>
         <CardDescription className="line-clamp-2 min-h-[40px] text-xs">
           {phase.description}
@@ -65,7 +64,7 @@ export function PhaseCard({ phase, status }: PhaseCardProps) {
           {phase.hasMeeting && (
             <div className="flex items-center gap-1">
               <Calendar className="w-3 h-3" />
-              Agendamento
+              Sessão de Alinhamento
             </div>
           )}
         </div>
@@ -74,7 +73,7 @@ export function PhaseCard({ phase, status }: PhaseCardProps) {
         {isLocked ? (
           <Button disabled className="w-full h-11 rounded-xl">
             <Lock className="w-4 h-4 mr-2" />
-            Bloqueado
+            Aguardando Liberação
           </Button>
         ) : (
           <Button asChild className="w-full bg-primary hover:bg-primary/90 h-11 rounded-xl font-bold">

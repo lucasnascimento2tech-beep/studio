@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useMemo, useEffect, useState } from "react";
@@ -49,7 +48,7 @@ export default function Home() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
       <div className="flex flex-col items-center gap-4">
         <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-slate-500 font-medium text-lg animate-pulse">Sincronizando jornada individual...</p>
+        <p className="text-slate-500 font-medium text-lg animate-pulse">Sincronizando sua jornada individual...</p>
       </div>
     </div>
   );
@@ -75,7 +74,7 @@ export default function Home() {
   const renderStatusInfoCard = () => {
     if (!nextPhase) return null;
 
-    // Caso: Aguardando Aprovação de Módulos (Antigo WaitingCheckpoint)
+    // Caso: Aguardando Aprovação de Módulos
     if (nextPhaseStatus === 'WaitingModuleApproval' || nextPhaseStatus === 'WaitingCheckpoint') {
       return (
         <Card className="border-2 border-amber-200 bg-amber-50 shadow-lg overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-500">
@@ -86,17 +85,17 @@ export default function Home() {
               </div>
               <div>
                 <CardTitle className="text-lg font-bold text-amber-900">Aguardando aprovação do implantador</CardTitle>
-                <p className="text-[10px] text-amber-500 uppercase tracking-widest font-bold">Conteúdo técnico em análise</p>
+                <p className="text-[10px] text-amber-500 uppercase tracking-widest font-bold">Conteúdo em análise</p>
               </div>
             </div>
             <Badge className="bg-amber-100 text-amber-700 border-amber-200">Em Análise</Badge>
           </CardHeader>
           <CardContent className="pt-2">
-            <p className="text-sm text-amber-800 leading-relaxed">Você concluiu os módulos desta etapa. Agora a equipe 2tech vai validar suas respostas e evidências para liberar o próximo passo da sua jornada.</p>
+            <p className="text-sm text-amber-800 leading-relaxed">Você concluiu as etapas obrigatórias deste módulo. Agora a equipe 2tech vai validar suas respostas para liberar o próximo passo da sua jornada.</p>
           </CardContent>
           <CardFooter className="bg-white/50 border-t p-4 flex justify-end">
             <Button asChild variant="outline" size="sm" className="font-bold border-amber-200 text-amber-700 hover:bg-amber-100">
-              <Link href={`/phases/${nextPhase.id}`}>Acompanhar Detalhes <ArrowRight className="w-4 h-4 ml-2" /></Link>
+              <Link href={`/phases/${nextPhase.id}`}>Acompanhar Etapas <ArrowRight className="w-4 h-4 ml-2" /></Link>
             </Button>
           </CardFooter>
         </Card>
@@ -109,20 +108,20 @@ export default function Home() {
         ReadyToSchedule: {
           title: "Encontro liberado",
           description: "Você já pode acessar a fase e registrar o agendamento com o implantador.",
-          button: "Agendar na fase",
+          button: "Agendar encontro",
           icon: <Calendar className="w-6 h-6 text-green-600" />,
           color: "border-green-200 bg-green-50/30"
         },
         Scheduled: {
           title: "Encontro agendado",
           description: "Acesse a fase para acompanhar o status e o horário do encontro.",
-          button: "Ver encontro",
+          button: "Ver agendamento",
           icon: <Calendar className="w-6 h-6 text-blue-600" />,
           color: "border-blue-200 bg-blue-50/30"
         },
         WaitingApproval: {
           title: "Aguardando aprovação",
-          description: "O encontro foi marcado como realizado e aguarda validação da equipe 2tech.",
+          description: "O encontro foi realizado e aguarda validação da equipe 2tech.",
           button: "Ver status",
           icon: <Clock className="w-6 h-6 text-indigo-600" />,
           color: "border-indigo-200 bg-indigo-50/30"
@@ -148,10 +147,10 @@ export default function Home() {
               </div>
               <div>
                 <CardTitle className="text-lg font-bold text-slate-800">{info.title}</CardTitle>
-                <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Encontro com Especialista</p>
+                <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Encontro Estratégico</p>
               </div>
             </div>
-            <Badge variant="outline" className="bg-white">{nextPhaseStatus}</Badge>
+            <Badge variant="outline" className="bg-white capitalize">{nextPhaseStatus.replace(/([A-Z])/g, ' $1').trim()}</Badge>
           </CardHeader>
           <CardContent className="pt-2">
             <p className="text-sm text-slate-600 leading-relaxed">{info.description}</p>
@@ -177,7 +176,7 @@ export default function Home() {
               <Rocket className="w-5 h-5 text-white" />
             </div>
             <span className="font-bold text-xl tracking-tight">2tech</span>
-            <span className="text-white/40 text-xs hidden md:inline font-medium uppercase tracking-widest">| Portal do Cliente</span>
+            <span className="text-white/40 text-xs hidden md:inline font-medium uppercase tracking-widest">| Guia de Implantação</span>
           </div>
           <div className="flex items-center gap-4">
             {user?.globalRole === 'client_master' && (
@@ -205,8 +204,8 @@ export default function Home() {
                     <Trophy className="w-10 h-10" />
                   </div>
                   <div className="space-y-2">
-                    <h2 className="text-3xl font-bold text-slate-900">Jornada Concluída!</h2>
-                    <p className="text-slate-500 max-w-lg mx-auto">Parabéns, sua jornada de implantação foi concluída com sucesso. A partir de agora, sua equipe pode seguir utilizando o 2tech com total autonomia.</p>
+                    <h2 className="text-3xl font-bold text-slate-900">Implantação Concluída!</h2>
+                    <p className="text-slate-500 max-w-lg mx-auto">Parabéns, sua jornada de implantação foi finalizada com sucesso. Sua equipe agora possui total autonomia no uso do 2tech.</p>
                   </div>
                   <Button asChild size="lg" className="bg-green-600 hover:bg-green-700 text-white font-bold px-12 h-14 rounded-2xl shadow-xl shadow-green-100">
                     <Link href={`/phases/${journeyPhases[0].id}`}>Revisar Conteúdos</Link>
@@ -222,20 +221,20 @@ export default function Home() {
                 <div className="flex-1 text-center md:text-left relative z-10">
                   <h2 className="text-xs font-bold text-primary uppercase tracking-widest mb-2 flex items-center gap-2 justify-center md:justify-start">
                     <span className="w-2 h-2 bg-primary rounded-full animate-pulse" />
-                    Seu Próximo Passo Individual
+                    Seu Próximo Passo
                   </h2>
                   <h3 className="text-3xl font-bold text-slate-900 mb-2">{nextPhase.title}</h3>
                   <p className="text-slate-500 text-sm max-w-xl">
-                    Avanço baseado nas suas responsabilidades: <span className="font-bold text-primary capitalize">{effectiveAreas.join(', ')}</span>.
+                    Avanço individual focado em suas responsabilidades: <span className="font-bold text-primary capitalize">{effectiveAreas.join(', ')}</span>.
                   </p>
                 </div>
                 {nextPhaseStatus === 'WaitingModuleApproval' || nextPhaseStatus === 'WaitingCheckpoint' ? (
                   <Button asChild size="lg" className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-12 h-16 rounded-2xl shadow-xl shadow-amber-100 relative z-10">
-                    <Link href={`/phases/${nextPhase.id}`}>Verificar Aprovação</Link>
+                    <Link href={`/phases/${nextPhase.id}`}>Ver Status de Aprovação</Link>
                   </Button>
                 ) : (
                   <Button asChild size="lg" className="bg-primary hover:bg-primary/90 text-white font-bold px-12 h-16 rounded-2xl shadow-xl shadow-primary/20 relative z-10">
-                    <Link href={`/phases/${nextPhase.id}`}>Acessar Meus Módulos</Link>
+                    <Link href={`/phases/${nextPhase.id}`}>Iniciar Próximo Módulo</Link>
                   </Button>
                 )}
               </div>
@@ -258,22 +257,22 @@ export default function Home() {
             <div className="flex gap-5">
               <div className="bg-white p-4 rounded-2xl shadow-md h-fit border-none"><Info className="text-primary w-7 h-7" /></div>
               <div>
-                <h4 className="font-bold text-slate-900 mb-2 text-lg">Jornada Individual</h4>
-                <p className="text-sm text-slate-500 leading-relaxed">Você avança conforme seu próprio ritmo e áreas atribuídas.</p>
+                <h4 className="font-bold text-slate-900 mb-2 text-lg">Aprendizado Individual</h4>
+                <p className="text-sm text-slate-500 leading-relaxed">Cada colaborador avança conforme seu ritmo e áreas de atuação no sistema.</p>
               </div>
             </div>
             <div className="flex gap-5">
               <div className="bg-white p-4 rounded-2xl shadow-md h-fit border-none"><Trophy className="text-primary w-7 h-7" /></div>
               <div>
-                <h4 className="font-bold text-slate-900 mb-2 text-lg">Validação Modular</h4>
-                <p className="text-sm text-slate-500 leading-relaxed">Cada módulo concluído é validado individualmente pelo especialista 2tech.</p>
+                <h4 className="font-bold text-slate-900 mb-2 text-lg">Validação Especializada</h4>
+                <p className="text-sm text-slate-500 leading-relaxed">Nossos implantadores revisam cada módulo concluído, garantindo o domínio total das ferramentas.</p>
               </div>
             </div>
             <div className="flex gap-5">
               <div className="bg-white p-4 rounded-2xl shadow-md h-fit border-none"><Settings className="text-primary w-7 h-7" /></div>
               <div>
-                <h4 className="font-bold text-slate-900 mb-2 text-lg">Apoio Especializado</h4>
-                <p className="text-sm text-slate-500 leading-relaxed">Nossos implantadores revisam suas evidências e orientam os ajustes.</p>
+                <h4 className="font-bold text-slate-900 mb-2 text-lg">Sucesso Operacional</h4>
+                <p className="text-sm text-slate-500 leading-relaxed">A jornada guiada foca na autonomia e na correta parametrização do seu negócio.</p>
               </div>
             </div>
           </div>
@@ -281,7 +280,7 @@ export default function Home() {
 
         <footer className="bg-white border-t py-12 text-center text-slate-400 text-sm mt-auto">
           <p className="font-bold text-slate-500">&copy; 2024 2tech - Gestão Inteligente de Crédito</p>
-          <p className="text-xs mt-2 uppercase tracking-widest">Plataforma de Sucesso do Cliente</p>
+          <p className="text-xs mt-2 uppercase tracking-widest">Portal de Sucesso do Cliente</p>
         </footer>
       </div>
     </AuthGuard>

@@ -1,7 +1,6 @@
-
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { 
   getFirestore, doc, onSnapshot, collection, query, where, 
@@ -20,7 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogT
 import { useToast } from "@/hooks/use-toast";
 import { 
   ArrowLeft, FileText, ShieldCheck, Users, Clock, 
-  CheckCircle2, Calendar, MessageSquare, Info, AlertTriangle, ExternalLink, Search, User, Trash2, Check, X, ShieldAlert, BarChart3, ChevronDown, ChevronRight
+  CheckCircle2, Calendar, MessageSquare, Info, AlertTriangle, ExternalLink, Search, User, Trash2, Check, X, ShieldAlert, BarChart3, ChevronDown, ChevronRight, RefreshCw
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -37,7 +36,7 @@ export default function ClientDetailPage() {
   const db = getFirestore();
   const { toast } = useToast();
   const router = useRouter();
-  const { approveModuleReview, requestModuleAdjustments, rejectModuleReview, approveMeeting, requestMeetingAdjustments } = useJourneyStore();
+  const { approveModuleReview, requestModuleAdjustments, rejectModuleReview, approveMeeting, requestMeetingAdjustments, recalculatePhaseAfterModuleReview } = useJourneyStore();
 
   // Estados de Autorização
   const [accessStatus, setAccessStatus] = useState<"loading" | "allowed" | "denied">("loading");
@@ -60,7 +59,10 @@ export default function ClientDetailPage() {
   const [moduleActionType, setModuleActionType] = useState<'approve' | 'adjust' | 'reject' | null>(null);
   const [newNote, setNewNote] = useState("");
   const [noteVisibility, setNoteVisibility] = useState<'internal' | 'client_visible'>('internal');
+  
   const [expandedMember, setExpandedMember] = useState<string | null>(null);
+  const [expandedPhases, setExpandedPhases] = useState<Record<string, boolean>>({});
+  const [hasSyncedOnce, setHasSyncedProgress] = useState(false);
 
   // 1. Carregar Implementação e Validar Acesso Primeiro
   useEffect(() => {
@@ -131,6 +133,30 @@ export default function ClientDetailPage() {
   }, [accessStatus, implementationId, db]);
 
   const canOperate = accessStatus === 'allowed';
+
+  // Sincronização manual de progresso
+  const handleSyncProgress = useCallback(async () => {
+    if (!implementationId || members.length === 0) return;
+    setIsProcessing(true);
+    try {
+      for (const member of members) {
+        if (!member.uid || !member.active) continue;
+        for (const phase of journeyPhases) {
+          await recalculatePhaseAfterModuleReview({
+            uid: member.uid,
+            implId: implementationId as string,
+            compId: implementation.companyId,
+            phaseId: phase.id
+          });
+        }
+      }
+      toast({ title: "Sincronização concluída", description: "O progresso dos usuários foi reprocessado." });
+    } catch (e) {
+      toast({ variant: "destructive", title: "Erro ao sincronizar" });
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [implementationId, members, implementation?.companyId, recalculatePhaseAfterModuleReview, toast]);
 
   // Ações de Revisão de Módulo
   const handleModuleReview = async () => {
@@ -215,6 +241,11 @@ export default function ClientDetailPage() {
     activeParticipants: members.filter(m => m.active).length
   };
 
+  const togglePhase = (memberUid: string, phaseId: string) => {
+    const key = `${memberUid}_${phaseId}`;
+    setExpandedPhases(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
   return (
     <AuthGuard allowedRoles={['implantador', 'admin_2tech']}>
       <div className="min-h-screen bg-slate-50 pb-20">
@@ -228,7 +259,14 @@ export default function ClientDetailPage() {
               <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest mt-1">Gestão de Implantação</p>
             </div>
           </div>
-          <UserNav user={currentUser} />
+          <div className="flex items-center gap-4">
+             {currentUser?.globalRole === 'admin_2tech' && (
+               <Button variant="outline" size="sm" asChild className="bg-slate-800 border-slate-700 text-white hover:bg-slate-700">
+                 <Link href="/admin"><ShieldCheck className="w-4 h-4 mr-2" /> Painel Admin</Link>
+               </Button>
+             )}
+             <UserNav user={currentUser} />
+          </div>
         </nav>
 
         <main className="max-w-7xl mx-auto p-6 md:p-8 space-y-8">
@@ -241,7 +279,7 @@ export default function ClientDetailPage() {
                 <h2 className="text-3xl font-headline font-bold text-slate-900">Painel de Controle</h2>
                 <div className="flex flex-wrap gap-2">
                   <Badge variant="outline" className="bg-slate-50 border-slate-200">Ref: {implementation?.id?.substring(0,8)}</Badge>
-                  <Badge className="bg-green-600">Individualizado</Badge>
+                  <Badge className="bg-green-600">Jornada Individualizada</Badge>
                   <Badge variant="secondary" className="capitalize">{implementation?.status?.replace('_', ' ')}</Badge>
                 </div>
               </div>
@@ -249,15 +287,15 @@ export default function ClientDetailPage() {
             
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 w-full lg:w-auto">
               <Card className="bg-orange-50/50 border-orange-100 p-4 text-center">
-                <p className="text-[9px] font-bold text-orange-400 uppercase">Módulos p/ Validar</p>
+                <p className="text-[9px] font-bold text-orange-400 uppercase">Aprovação Pendente</p>
                 <p className="text-2xl font-bold text-orange-700">{stats.pendingReview}</p>
               </Card>
               <Card className="bg-blue-50/50 border-blue-100 p-4 text-center">
-                <p className="text-[9px] font-bold text-blue-400 uppercase">Encontros Pendentes</p>
+                <p className="text-[9px] font-bold text-blue-400 uppercase">Encontros</p>
                 <p className="text-2xl font-bold text-blue-700">{stats.pendingMeetings}</p>
               </Card>
               <Card className="bg-slate-50 border-slate-200 p-4 text-center">
-                <p className="text-[9px] font-bold text-slate-400 uppercase">Participantes</p>
+                <p className="text-[9px] font-bold text-slate-400 uppercase">Equipe Ativa</p>
                 <p className="text-2xl font-bold text-slate-700">{stats.activeParticipants}</p>
               </Card>
             </div>
@@ -279,15 +317,23 @@ export default function ClientDetailPage() {
 
             {/* ABA: PROGRESSO E VALIDAÇÃO */}
             <TabsContent value="progress" className="space-y-6">
+              <div className="flex justify-end">
+                <Button variant="outline" size="sm" onClick={handleSyncProgress} disabled={isProcessing} className="text-[10px] font-bold uppercase tracking-wider">
+                  <RefreshCw className={cn("w-3 h-3 mr-2", isProcessing && "animate-spin")} /> Sincronizar Fases
+                </Button>
+              </div>
+
               {members.filter(m => m.active && m.uid).map(member => {
                 const userAreas = member.areas || [];
                 const role = member.clientAccessType === 'master' ? 'client_master' : 'client_participant';
                 
                 const progressByPhase = journeyPhases.map(phase => {
                   const accessible = phase.modules.filter(m => canAccessModule(role, userAreas, m));
-                  const approvedCount = accessible.filter(m => 
-                    allModuleProgress.find(p => p.uid === member.uid && p.moduleId === m.id)?.moduleReviewStatus === 'approved'
-                  ).length;
+                  const approvedCount = accessible.filter(m => {
+                    const p = allModuleProgress.find(ap => ap.uid === member.uid && ap.moduleId === m.id);
+                    if (!p) return false;
+                    return p.moduleReviewStatus === 'approved' || (m.requiresEvidence && p.evidenceStatus === 'approved');
+                  }).length;
                   
                   const dbStatus = allPhaseProgress.find(p => p.uid === member.uid && p.phaseId === phase.id)?.status;
                   return { phase, accessible, approvedCount, status: dbStatus || (phase.id === 'fase-0' ? 'InProgress' : 'Locked') };
@@ -311,7 +357,7 @@ export default function ClientDetailPage() {
                       </div>
                       <div className="flex-1 max-w-md w-full px-6">
                         <div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase mb-1">
-                          <span>Módulos Aprovados</span>
+                          <span>Módulos Validados</span>
                           <span>{globalPercent}% ({totalAppr}/{totalAcc})</span>
                         </div>
                         <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
@@ -324,65 +370,94 @@ export default function ClientDetailPage() {
                     </div>
 
                     {isExpanded && (
-                      <div className="border-t bg-slate-50/50 p-6 space-y-8">
-                        {progressByPhase.map(p => (
-                          <div key={p.phase.id} className="space-y-4">
-                            <div className="flex justify-between items-center border-b pb-2">
-                              <h5 className="text-xs font-bold text-slate-700 uppercase tracking-widest">{p.phase.title}</h5>
-                              <Badge variant="outline" className="text-[9px] bg-white">{p.status}</Badge>
-                            </div>
-                            <div className="grid grid-cols-1 gap-4">
-                              {p.accessible.map(mod => {
-                                const prog = allModuleProgress.find(mp => mp.uid === member.uid && mp.moduleId === mod.id);
-                                const reviewStatus = prog?.moduleReviewStatus;
-                                
-                                return (
-                                  <div key={mod.id} className={cn(
-                                    "p-4 rounded-xl border bg-white shadow-sm flex flex-col md:flex-row justify-between gap-4",
-                                    reviewStatus === 'approved' ? "border-green-100" : reviewStatus === 'adjustment_requested' ? "border-red-100" : "border-slate-100"
-                                  )}>
-                                    <div className="flex-1 space-y-2">
-                                      <div className="flex items-center gap-2">
-                                        <p className="text-xs font-bold text-slate-800">{mod.title}</p>
-                                        <Badge variant="secondary" className="text-[8px] uppercase">{mod.area}</Badge>
-                                      </div>
-                                      {prog?.validationAnswer && (
-                                        <div className="bg-slate-50 p-3 rounded-lg border text-xs">
-                                          <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Resposta de Validação:</p>
-                                          <p className="text-slate-700 italic">"{prog.validationAnswer}"</p>
-                                        </div>
-                                      )}
-                                      {prog?.fileName && (
-                                        <div className="flex items-center gap-2 text-primary font-bold text-xs bg-blue-50 w-fit px-3 py-1.5 rounded-lg border border-blue-100">
-                                          <FileText className="w-3 h-3" /> {prog.fileName}
-                                          <Button variant="ghost" size="icon" className="h-5 w-5 ml-2"><ExternalLink className="w-3 h-3" /></Button>
-                                        </div>
-                                      )}
-                                      {prog?.reviewComment && (
-                                        <p className="text-[10px] text-slate-500 font-medium bg-slate-50 p-2 rounded">Comentário: {prog.reviewComment}</p>
-                                      )}
-                                    </div>
+                      <div className="border-t bg-slate-50/50 p-6 space-y-4">
+                        {progressByPhase.map(p => {
+                          const phaseKey = `${member.uid}_${p.phase.id}`;
+                          const isPhaseOpen = expandedPhases[phaseKey] || p.status === 'InProgress' || p.status === 'WaitingModuleApproval' || p.status === 'PendingAdjustments';
 
-                                    <div className="flex flex-col justify-center gap-2 min-w-[150px]">
-                                      {reviewStatus === 'approved' ? (
-                                        <Badge className="bg-green-100 text-green-700 h-8 flex justify-center gap-2"><CheckCircle2 className="w-3 h-3" /> Validado</Badge>
-                                      ) : reviewStatus === 'adjustment_requested' ? (
-                                        <Badge className="bg-red-100 text-red-700 h-8 flex justify-center gap-2"><AlertTriangle className="w-3 h-3" /> Ajuste</Badge>
-                                      ) : prog?.status === 'completed' ? (
-                                        <div className="grid grid-cols-2 gap-2">
-                                          <Button size="sm" variant="outline" className="text-red-500 h-8 text-[10px]" onClick={() => { setSelectedItem(prog); setModuleActionType('adjust'); setActiveModal('module_review'); }}>Ajuste</Button>
-                                          <Button size="sm" className="bg-green-600 hover:bg-green-700 h-8 text-[10px]" onClick={() => { approveModuleReview({ uid: member.uid!, implId: implementationId as string, compId: implementation.companyId, phaseId: p.phase.id, moduleId: mod.id }); }}>Aprovar</Button>
+                          return (
+                            <div key={p.phase.id} className="bg-white rounded-xl border shadow-sm overflow-hidden">
+                              <div 
+                                className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-slate-50"
+                                onClick={() => togglePhase(member.uid!, p.phase.id)}
+                              >
+                                <div className="flex items-center gap-3">
+                                  {isPhaseOpen ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                                  <h5 className="text-xs font-bold text-slate-700 uppercase tracking-widest">{p.phase.title}</h5>
+                                  <Badge variant="outline" className={cn(
+                                    "text-[9px] uppercase",
+                                    p.status === 'Completed' ? "bg-green-50 text-green-700" :
+                                    p.status === 'ReadyToSchedule' ? "bg-blue-50 text-blue-700" :
+                                    p.status === 'PendingAdjustments' ? "bg-red-50 text-red-700" : "bg-white"
+                                  )}>
+                                    {p.status === 'WaitingModuleApproval' ? 'Aguardando Aprovação' : 
+                                     p.status === 'InProgress' ? 'Em Andamento' :
+                                     p.status === 'ReadyToSchedule' ? 'Encontro Liberado' :
+                                     p.status === 'Completed' ? 'Concluída' : p.status}
+                                  </Badge>
+                                </div>
+                                <span className="text-[10px] font-bold text-slate-400">{p.approvedCount}/{p.accessible.length} validados</span>
+                              </div>
+
+                              {isPhaseOpen && (
+                                <div className="p-4 border-t bg-slate-50/30 space-y-3">
+                                  {p.accessible.map(mod => {
+                                    const prog = allModuleProgress.find(mp => mp.uid === member.uid && mp.moduleId === mod.id);
+                                    const reviewStatus = prog?.moduleReviewStatus || (mod.requiresEvidence && prog?.evidenceStatus === 'approved' ? 'approved' : null);
+                                    
+                                    return (
+                                      <div key={mod.id} className={cn(
+                                        "p-4 rounded-xl border bg-white shadow-sm flex flex-col md:flex-row justify-between gap-4",
+                                        reviewStatus === 'approved' ? "border-green-100" : reviewStatus === 'adjustment_requested' ? "border-red-100" : "border-slate-100"
+                                      )}>
+                                        <div className="flex-1 space-y-2">
+                                          <div className="flex items-center gap-2">
+                                            <p className="text-xs font-bold text-slate-800">{mod.title}</p>
+                                            <Badge variant="secondary" className="text-[8px] uppercase">{mod.area}</Badge>
+                                            {mod.isRequired && <span className="text-[8px] text-red-500 font-bold uppercase tracking-tighter">Obrigatório</span>}
+                                          </div>
+                                          
+                                          {prog?.validationAnswer && (
+                                            <div className="bg-slate-50 p-3 rounded-lg border text-xs">
+                                              <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Resposta de Validação:</p>
+                                              <p className="text-slate-700 italic">"{prog.validationAnswer}"</p>
+                                            </div>
+                                          )}
+                                          
+                                          {prog?.fileName && (
+                                            <div className="flex items-center gap-2 text-primary font-bold text-xs bg-blue-50 w-fit px-3 py-1.5 rounded-lg border border-blue-100">
+                                              <FileText className="w-3 h-3" /> {prog.fileName}
+                                              <Button variant="ghost" size="icon" className="h-5 w-5 ml-2"><ExternalLink className="w-3 h-3" /></Button>
+                                            </div>
+                                          )}
+                                          
+                                          {prog?.reviewComment && (
+                                            <p className="text-[10px] text-slate-500 font-medium bg-slate-50 p-2 rounded">Parecer: {prog.reviewComment}</p>
+                                          )}
                                         </div>
-                                      ) : (
-                                        <Badge variant="outline" className="h-8 flex justify-center text-slate-400">Pendente Cliente</Badge>
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              })}
+
+                                        <div className="flex flex-col justify-center gap-2 min-w-[150px]">
+                                          {reviewStatus === 'approved' ? (
+                                            <Badge className="bg-green-100 text-green-700 h-8 flex justify-center gap-2 border-green-200"><CheckCircle2 className="w-3 h-3" /> Validado</Badge>
+                                          ) : reviewStatus === 'adjustment_requested' ? (
+                                            <Badge className="bg-red-100 text-red-700 h-8 flex justify-center gap-2 border-red-200"><AlertTriangle className="w-3 h-3" /> Ajuste solicitado</Badge>
+                                          ) : prog?.status === 'completed' ? (
+                                            <div className="grid grid-cols-2 gap-2">
+                                              <Button size="sm" variant="outline" className="text-red-500 h-8 text-[10px]" onClick={() => { setSelectedItem(prog); setModuleActionType('adjust'); setActiveModal('module_review'); }}>Ajuste</Button>
+                                              <Button size="sm" className="bg-green-600 hover:bg-green-700 h-8 text-[10px]" onClick={() => { approveModuleReview({ uid: member.uid!, implId: implementationId as string, compId: implementation.companyId, phaseId: p.phase.id, moduleId: mod.id }); }}>Aprovar</Button>
+                                            </div>
+                                          ) : (
+                                            <Badge variant="outline" className="h-8 flex justify-center text-slate-400 border-dashed">Pendente Cliente</Badge>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </Card>
@@ -433,7 +508,7 @@ export default function ClientDetailPage() {
                           <div className="grid grid-cols-2 gap-4"><div className="bg-slate-50 p-3 rounded-xl border text-sm font-bold text-slate-700">{meet.scheduledDate}</div><div className="bg-slate-50 p-3 rounded-xl border text-sm font-bold text-slate-700">{meet.scheduledTime}</div></div>
                           {meet.status === 'WaitingApproval' && canOperate && (
                             <div className="space-y-4 pt-2 border-t">
-                              <Textarea placeholder="Parecer final..." className="text-xs" value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} />
+                              <Textarea placeholder="Parecer final do especialista..." className="text-xs" value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} />
                               <div className="grid grid-cols-2 gap-3">
                                 <Button variant="outline" className="text-red-600 font-bold" onClick={() => { setSelectedItem(meet); handleMeetingAction('adjust'); }}>Solicitar Ajuste</Button>
                                 <Button className="bg-green-600 font-bold" onClick={() => { setSelectedItem(meet); handleMeetingAction('approve'); }}>Aprovar Etapa</Button>
@@ -450,7 +525,7 @@ export default function ClientDetailPage() {
 
             {/* ABA: OBSERVAÇÕES */}
             <TabsContent value="notes" className="space-y-6">
-              <Card className="border-none shadow-sm overflow-hidden"><CardHeader><CardTitle className="text-lg">Registrar Nova Observação</CardTitle></CardHeader><CardContent className="space-y-4"><Textarea placeholder="Adicione um comentário..." className="min-h-[100px]" value={newNote} onChange={(e) => setNewNote(e.target.value)}/><div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"><div className="flex gap-4"><label className="flex items-center gap-2 cursor-pointer"><input type="radio" checked={noteVisibility === 'internal'} onChange={() => setNoteVisibility('internal')} /><span className="text-xs font-bold text-slate-500 uppercase">Interna</span></label><label className="flex items-center gap-2 cursor-pointer"><input type="radio" checked={noteVisibility === 'client_visible'} onChange={() => setNoteVisibility('client_visible')} /><span className="text-xs font-bold text-blue-600 uppercase">Pública</span></label></div><Button onClick={() => {}} disabled={isProcessing || !newNote.trim()}>Registrar Nota</Button></div></CardContent></Card>
+              <Card className="border-none shadow-sm overflow-hidden"><CardHeader><CardTitle className="text-lg">Registrar Nova Observação</CardTitle></CardHeader><CardContent className="space-y-4"><Textarea placeholder="Adicione um comentário interno ou público..." className="min-h-[100px]" value={newNote} onChange={(e) => setNewNote(e.target.value)}/><div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"><div className="flex gap-4"><label className="flex items-center gap-2 cursor-pointer"><input type="radio" checked={noteVisibility === 'internal'} onChange={() => setNoteVisibility('internal')} /><span className="text-xs font-bold text-slate-500 uppercase">Interna (2tech)</span></label><label className="flex items-center gap-2 cursor-pointer"><input type="radio" checked={noteVisibility === 'client_visible'} onChange={() => setNoteVisibility('client_visible')} /><span className="text-xs font-bold text-blue-600 uppercase">Pública (Cliente)</span></label></div><Button onClick={() => {}} disabled={isProcessing || !newNote.trim()}>Registrar Nota</Button></div></CardContent></Card>
             </TabsContent>
           </Tabs>
         </main>
@@ -460,7 +535,7 @@ export default function ClientDetailPage() {
             <DialogHeader><DialogTitle>{moduleActionType === 'adjust' ? 'Solicitar Ajuste no Módulo' : 'Rejeitar Módulo'}</DialogTitle></DialogHeader>
             <div className="py-4 space-y-4">
                <div className="bg-orange-50 p-3 rounded-lg border border-orange-100 flex gap-3"><AlertTriangle className="w-5 h-5 text-orange-500 shrink-0" /><p className="text-xs text-orange-800">O cliente precisará reenviar este item para análise.</p></div>
-               <div className="space-y-2"><Label>O que precisa ser corrigido?</Label><Textarea placeholder="Explique o motivo do ajuste..." value={reviewComment} onChange={(e) => setReviewComment(e.target.value)}/></div>
+               <div className="space-y-2"><Label>O que precisa ser corrigido pelo participante?</Label><Textarea placeholder="Explique o motivo do ajuste..." value={reviewComment} onChange={(e) => setReviewComment(e.target.value)}/></div>
             </div>
             <DialogFooter><Button variant="outline" onClick={() => setActiveModal('none')}>Cancelar</Button><Button disabled={isProcessing || !reviewComment.trim()} onClick={handleModuleReview}>Confirmar</Button></DialogFooter>
           </DialogContent>

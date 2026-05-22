@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
@@ -204,6 +203,7 @@ export function useJourneyStore() {
           phaseId: nextPhaseId,
           status: "InProgress",
           progressPercent: 0,
+          createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         }, { merge: true });
       }
@@ -385,16 +385,23 @@ export function useJourneyStore() {
 
     // Obter áreas do usuário (Master vs Participant)
     let areas: AreaType[] = ["todos"];
-    const memberSnap = await getDocs(query(
-      collection(db, "implementationMembers"),
-      where("implementationId", "==", params.implId),
-      where("uid", "==", params.uid)
-    ));
-    
-    if (!memberSnap.empty) {
-      const mData = memberSnap.docs[0].data();
-      if (mData.role !== 'implementation_master') {
+    const userDoc = await getDoc(doc(db, "users", params.uid));
+    const userData = userDoc.exists() ? userDoc.data() : null;
+
+    if (userData?.globalRole === 'client_participant') {
+      const memberSnap = await getDocs(query(
+        collection(db, "implementationMembers"),
+        where("implementationId", "==", params.implId),
+        where("uid", "==", params.uid),
+        where("active", "==", true)
+      ));
+      
+      if (!memberSnap.empty) {
+        const mData = memberSnap.docs[0].data();
         areas = mData.areas || [];
+      } else {
+        console.warn(`Membro não encontrado para recalcular fase: ${params.uid}`);
+        return; // Não recalcula se não sabe as áreas
       }
     }
 
@@ -407,25 +414,43 @@ export function useJourneyStore() {
     ));
 
     const progressDocs = modSnap.docs.map(d => d.data());
-    const allApproved = requiredModules.every(rm => 
-      progressDocs.find(p => p.moduleId === rm.id)?.moduleReviewStatus === 'approved'
-    );
+    
+    // Função auxiliar para considerar legados (evidenceStatus === 'approved') como aprovados
+    const isApproved = (modId: string) => {
+      const p = progressDocs.find(x => x.moduleId === modId);
+      if (!p) return false;
+      if (p.moduleReviewStatus === 'approved') return true;
+      // Compatibilidade: se exige evidência e ela está aprovada, considera módulo aprovado
+      const module = phase.modules.find(m => m.id === modId);
+      if (module?.requiresEvidence && p.evidenceStatus === 'approved') return true;
+      return false;
+    };
+
+    const allApproved = requiredModules.every(rm => isApproved(rm.id));
 
     if (allApproved) {
       const phaseRef = doc(db, "phaseProgress", getGenericPhaseProgressId(params.implId, params.uid, params.phaseId));
       if (phase.hasMeeting) {
-        await updateDoc(phaseRef, {
+        await setDoc(phaseRef, {
+          uid: params.uid,
+          implementationId: params.implId,
+          companyId: params.compId,
+          phaseId: params.phaseId,
           status: "ReadyToSchedule",
           progressPercent: 100,
           updatedAt: serverTimestamp()
-        });
+        }, { merge: true });
       } else {
-        await updateDoc(phaseRef, {
+        await setDoc(phaseRef, {
+          uid: params.uid,
+          implementationId: params.implId,
+          companyId: params.compId,
+          phaseId: params.phaseId,
           status: "Completed",
           progressPercent: 100,
           completedAt: serverTimestamp(),
           updatedAt: serverTimestamp()
-        });
+        }, { merge: true });
         await unlockNextPhaseForUser(params.uid, params.implId, params.compId, params.phaseId);
       }
     }
@@ -448,8 +473,6 @@ export function useJourneyStore() {
       submittedAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     }, { merge: true });
-
-    // O Quiz deixa de ser o gatilho principal, mas mantemos o registro histórico
   };
 
   const scheduleMeeting = async (phaseId: string, meetingData: { date: string, time: string, notes: string }) => {
@@ -552,6 +575,7 @@ export function useJourneyStore() {
     approveMeeting,
     requestMeetingAdjustments,
     recalculatePhaseProgress,
-    ensureCurrentProgressConsistency
+    ensureCurrentProgressConsistency,
+    recalculatePhaseAfterModuleReview
   };
 }
