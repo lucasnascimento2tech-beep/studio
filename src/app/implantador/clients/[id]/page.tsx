@@ -117,8 +117,16 @@ export default function ClientDetailPage() {
       setAllSubmissions(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    const unsubNotes = onSnapshot(query(collection(db, "implantadorNotes"), where("implementationId", "==", implementationId), orderBy("createdAt", "desc")), (snap) => {
-      setAllNotes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    // Removido orderBy do banco para evitar necessidade de índice composto
+    const unsubNotes = onSnapshot(query(collection(db, "implantadorNotes"), where("implementationId", "==", implementationId)), (snap) => {
+      const notes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Ordenação no frontend para evitar falha por falta de índice
+      notes.sort((a: any, b: any) => {
+        const dateA = a.createdAt?.seconds || 0;
+        const dateB = b.createdAt?.seconds || 0;
+        return dateB - dateA;
+      });
+      setAllNotes(notes);
       setLoading(false);
     });
 
