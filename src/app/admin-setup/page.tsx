@@ -1,7 +1,6 @@
 "use client";
 
-import { AuthGuard } from "@/components/auth/AuthGuard";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Card, CardTitle, CardContent } from "@/components/ui/card";
 import { ShieldAlert } from "lucide-react";
 
 export default function ForbiddenSetup() {
