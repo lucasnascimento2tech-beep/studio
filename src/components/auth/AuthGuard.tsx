@@ -30,9 +30,11 @@ export function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
       return;
     }
 
-    // Verificação de papéis permitidos
+    // Redirecionamento por Papel (Acesso Indevido)
     if (allowedRoles && !allowedRoles.includes(user.globalRole as GlobalRole)) {
-      if (user.globalRole === 'admin_2tech' || user.globalRole === 'implantador') {
+      if (user.globalRole === 'admin_2tech') {
+        router.push("/admin");
+      } else if (user.globalRole === 'implantador') {
         router.push("/implantador");
       } else if (user.globalRole === 'client_pending') {
         router.push("/pending-approval");
@@ -40,6 +42,12 @@ export function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
         router.push("/");
       }
     }
+
+    // Caso específico: admin tentando acessar /implantador está OK, mas implantador tentando acessar /admin NÃO
+    if (pathname === '/admin' && user.globalRole !== 'admin_2tech') {
+      router.push("/implantador");
+    }
+    
   }, [user, loading, router, allowedRoles, pathname]);
 
   if (loading) {
@@ -57,6 +65,7 @@ export function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
   if (!user) return null;
   if (user.globalRole === 'client_pending' && pathname !== '/pending-approval') return null;
   if (allowedRoles && !allowedRoles.includes(user.globalRole as GlobalRole)) return null;
+  if (pathname === '/admin' && user.globalRole !== 'admin_2tech') return null;
 
   return <>{children}</>;
 }

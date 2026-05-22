@@ -32,9 +32,7 @@ export default function LoginPage() {
 
       // Redirecionamento baseado em Role
       if (user.globalRole === 'admin_2tech') {
-        // TODO: Redirecionar para /admin quando a rota for criada. 
-        // Por enquanto, admin usa o painel do implantador.
-        router.push("/implantador");
+        router.push("/admin");
         return;
       }
       
