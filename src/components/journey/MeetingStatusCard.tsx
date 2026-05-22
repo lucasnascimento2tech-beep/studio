@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -9,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { 
   Calendar, CheckCircle2, 
-  AlertTriangle, Clock, ArrowRight, Info, Users, Unlock 
+  AlertTriangle, Clock, ArrowRight, Unlock, Check
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Phase, ImplementationMember } from "@/types/journey";
@@ -28,6 +29,7 @@ interface MeetingStatusCardProps {
   members?: ImplementationMember[];
   memberProgress?: Record<string, any>;
   onSchedule: (data: { date: string, time: string, notes: string }) => void;
+  onMarkReadyForApproval?: (phaseId: string) => void;
 }
 
 export function MeetingStatusCard({ 
@@ -37,7 +39,8 @@ export function MeetingStatusCard({
   isClientMaster, 
   members = [], 
   memberProgress = {},
-  onSchedule 
+  onSchedule,
+  onMarkReadyForApproval
 }: MeetingStatusCardProps) {
   
   const [meetingDate, setMeetingDate] = useState("");
@@ -46,7 +49,7 @@ export function MeetingStatusCard({
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   const status = userProgress.status;
-  const isUnlocked = status === 'ReadyToSchedule' || status === 'Scheduled' || status === 'WaitingApproval' || status === 'Completed' || status === 'PendingAdjustments';
+  const isUnlocked = ['ReadyToSchedule', 'Scheduled', 'WaitingApproval', 'Completed', 'PendingAdjustments'].includes(status);
 
   const handleSchedule = () => {
     if (!meetingDate || !meetingTime) return;
@@ -63,8 +66,8 @@ export function MeetingStatusCard({
           <div className="bg-slate-50 border p-4 rounded-xl flex items-start gap-3">
             <Clock className="w-5 h-5 text-slate-400 mt-0.5" />
             <div className="space-y-1">
-              <p className="text-sm font-bold text-slate-700">Aguardando Requisitos</p>
-              <p className="text-xs text-slate-500">Conclua os módulos obrigatórios e a validação para liberar o agendamento do encontro.</p>
+              <p className="text-sm font-bold text-slate-700">Encontro ainda não liberado</p>
+              <p className="text-xs text-slate-500">Conclua os módulos obrigatórios desta fase e responda a validação para liberar o agendamento.</p>
             </div>
           </div>
         );
@@ -74,8 +77,8 @@ export function MeetingStatusCard({
           <div className="bg-green-50 border border-green-200 p-4 rounded-xl flex items-start gap-3">
             <Unlock className="w-5 h-5 text-green-600 mt-0.5" />
             <div className="space-y-1">
-              <p className="text-sm font-bold text-green-800">Requisitos Concluídos!</p>
-              <p className="text-xs text-green-700">Sua jornada individual nesta fase está pronta. Já pode agendar o encontro guiado.</p>
+              <p className="text-sm font-bold text-green-800">Encontro liberado!</p>
+              <p className="text-xs text-green-700">Você concluiu os requisitos desta fase. Agora já pode agendar o encontro com o implantador.</p>
             </div>
           </div>
         );
@@ -87,8 +90,8 @@ export function MeetingStatusCard({
             <div className="flex items-start gap-3">
               <Calendar className="w-6 h-6 text-blue-600" />
               <div className="space-y-1">
-                <p className="text-sm font-bold text-blue-900">Encontro Agendado</p>
-                <p className="text-xs text-blue-700">O encontro está registrado no sistema. Aguarde a realização conforme os detalhes abaixo:</p>
+                <p className="text-sm font-bold text-blue-900">Encontro agendado</p>
+                <p className="text-xs text-blue-700">Após a realização do encontro, marque esta etapa como realizada para que o implantador possa avaliar.</p>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4 pt-2 border-t border-blue-100">
@@ -101,6 +104,12 @@ export function MeetingStatusCard({
                 <p className="text-sm font-bold text-blue-800">{meet?.scheduledTime || '...'}</p>
               </div>
             </div>
+            <Button 
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold"
+              onClick={() => onMarkReadyForApproval?.(phase.id)}
+            >
+              <Check className="w-4 h-4 mr-2" /> Marcar como realizado
+            </Button>
           </div>
         );
 
@@ -109,8 +118,8 @@ export function MeetingStatusCard({
           <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex items-start gap-3">
             <Clock className="w-5 h-5 text-amber-600 mt-0.5" />
             <div className="space-y-1">
-              <p className="text-sm font-bold text-amber-800">Aguardando Avaliação</p>
-              <p className="text-xs text-amber-700">O encontro foi realizado e o implantador está revisando seu progresso para liberar a próxima fase.</p>
+              <p className="text-sm font-bold text-amber-800">Aguardando aprovação do implantador</p>
+              <p className="text-xs text-amber-700">O encontro foi marcado como realizado e está aguardando validação da equipe 2tech.</p>
             </div>
           </div>
         );
@@ -120,8 +129,8 @@ export function MeetingStatusCard({
           <div className="bg-green-100 border border-green-300 p-4 rounded-xl flex items-start gap-3">
             <CheckCircle2 className="w-5 h-5 text-green-600 mt-0.5" />
             <div className="space-y-1">
-              <p className="text-sm font-bold text-green-900">Etapa Validada e Concluída!</p>
-              <p className="text-xs text-green-700">Parabéns! O implantador aprovou seu desempenho nesta fase.</p>
+              <p className="text-sm font-bold text-green-900">Fase validada e concluída!</p>
+              <p className="text-xs text-green-700">Esta etapa foi aprovada pelo implantador e concluída.</p>
             </div>
           </div>
         );
@@ -132,8 +141,8 @@ export function MeetingStatusCard({
             <div className="flex items-start gap-3">
               <AlertTriangle className="w-6 h-6 text-red-600" />
               <div className="space-y-1">
-                <p className="text-sm font-bold text-red-900">Ajustes Solicitados</p>
-                <p className="text-xs text-red-700">O implantador revisou seu encontro e solicitou alguns ajustes antes da aprovação final.</p>
+                <p className="text-sm font-bold text-red-900">Ajustes solicitados</p>
+                <p className="text-xs text-red-700">O implantador solicitou ajustes antes da conclusão desta fase.</p>
               </div>
             </div>
             {userProgress.meeting?.implantadorComment && (
@@ -142,7 +151,7 @@ export function MeetingStatusCard({
               </div>
             )}
             <Button size="sm" className="w-full bg-red-600 hover:bg-red-700 text-white font-bold" onClick={() => setIsDialogOpen(true)}>
-              Reagendar Encontro
+              Reagendar encontro
             </Button>
           </div>
         );
@@ -171,7 +180,7 @@ export function MeetingStatusCard({
                 {phase.meetingTitle || "Encontro com Implantador"}
               </CardTitle>
               <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">
-                {isUnlocked ? "Etapa Liberada" : "Etapa Bloqueada"}
+                {isUnlocked ? "Etapa liberada" : "Etapa bloqueada"}
               </p>
             </div>
           </div>
@@ -189,20 +198,20 @@ export function MeetingStatusCard({
             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
               <DialogTrigger asChild>
                 <Button className="bg-primary hover:bg-primary/90 font-bold h-12 px-8 shadow-lg shadow-primary/20">
-                  Agendar Agora <ArrowRight className="w-4 h-4 ml-2" />
+                  Agendar encontro <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               </DialogTrigger>
               <DialogContent className="sm:max-w-[425px]">
                 <DialogHeader>
-                  <DialogTitle>Agendar Encontro: {phase.title}</DialogTitle>
+                  <DialogTitle>Agendar encontro: {phase.title}</DialogTitle>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
                   <div className="grid gap-2">
-                    <Label htmlFor="date">Data Sugerida</Label>
+                    <Label htmlFor="date">Data sugerida</Label>
                     <Input id="date" type="date" value={meetingDate} onChange={(e) => setMeetingDate(e.target.value)} />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="time">Horário Sugerido</Label>
+                    <Label htmlFor="time">Horário sugerido</Label>
                     <Input id="time" type="time" value={meetingTime} onChange={(e) => setMeetingTime(e.target.value)} />
                   </div>
                   <div className="grid gap-2">
@@ -217,7 +226,7 @@ export function MeetingStatusCard({
                 </div>
                 <DialogFooter>
                   <Button onClick={handleSchedule} className="w-full font-bold h-12" disabled={!meetingDate || !meetingTime}>
-                    Confirmar Registro
+                    Confirmar agendamento
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -225,55 +234,6 @@ export function MeetingStatusCard({
           </CardFooter>
         )}
       </Card>
-
-      {isClientMaster && members.length > 0 && (
-        <Card className="border-slate-200 bg-white shadow-md overflow-hidden">
-          <CardHeader className="py-4 bg-slate-50 border-b">
-            <CardTitle className="text-sm font-bold text-slate-700 flex items-center gap-2">
-              <Users className="w-4 h-4" /> Acompanhamento da Equipe (Informativo)
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="divide-y max-h-[300px] overflow-y-auto">
-              {members.map(m => {
-                const prog = m.uid ? memberProgress[m.uid] : null;
-                const mAreas = m.areas || ['todos'];
-                const mRequired = phase.modules.filter(mod => 
-                  mod.isRequired && (mAreas.includes(mod.area) || mAreas.includes('todos'))
-                );
-                const mCompleted = prog?.completedModules?.length || 0;
-                const mDone = mRequired.length > 0 && mCompleted >= mRequired.length;
-
-                return (
-                  <div key={m.id} className="p-4 flex items-center justify-between hover:bg-slate-50/50 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-600 border">
-                        {m.name.substring(0, 2).toUpperCase()}
-                      </div>
-                      <div>
-                        <p className="text-xs font-bold text-slate-700">{m.name}</p>
-                        <p className="text-[9px] text-slate-400 capitalize">{m.areas.join(', ')}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <p className="text-[10px] font-bold text-slate-500">{mCompleted}/{mRequired.length}</p>
-                        <div className="w-16 h-1 bg-slate-100 rounded-full mt-1">
-                          <div 
-                            className={cn("h-full transition-all", mDone ? "bg-green-500" : "bg-primary")} 
-                            style={{ width: `${mRequired.length > 0 ? (mCompleted / mRequired.length) * 100 : 0}%` }} 
-                          />
-                        </div>
-                      </div>
-                      {mDone ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <Clock className="w-4 h-4 text-slate-200" />}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

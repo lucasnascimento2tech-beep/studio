@@ -1,30 +1,42 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
-import { getFirestore, collection, query, where, onSnapshot } from "firebase/firestore";
+import { getFirestore, collection, query, where, onSnapshot, orderBy } from "firebase/firestore";
 import { useUser } from "@/firebase";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Users, CheckCircle, Clock, Search, MessageSquare, Loader2, LayoutDashboard } from "lucide-react";
+import { Users, CheckCircle, Clock, Search, MessageSquare, Loader2, LayoutDashboard, Calendar, Check, X, Info } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
 import { AccessRequestsTab } from "./access-requests/AccessRequestsTab";
 import { UserNav } from "@/components/layout/UserNav";
+import { useJourneyStore } from "@/hooks/useJourneyStore";
+import { useToast } from "@/hooks/use-toast";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 export default function ImplantadorPage() {
   const { user } = useUser();
   const db = getFirestore();
+  const { toast } = useToast();
+  const { approveMeeting, requestMeetingAdjustments } = useJourneyStore();
   
   const [isMounted, setIsMounted] = useState(false);
   const [implementations, setImplementations] = useState<any[]>([]);
   const [companies, setCompanies] = useState<Record<string, any>>({});
+  const [pendingMeetings, setPendingMeetings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
+
+  const [reviewComment, setReviewComment] = useState<Record<string, string>>({});
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     setIsMounted(true);
@@ -39,7 +51,7 @@ export default function ImplantadorPage() {
       setCompanies(companyMap);
     });
 
-    // Escutar Implantações (Respeitando vínculo de Implantador)
+    // Escutar Implantações
     let qImpl;
     if (user.globalRole === 'admin_2tech') {
       qImpl = query(collection(db, "implementations"));
@@ -62,12 +74,63 @@ export default function ImplantadorPage() {
       setPendingRequestsCount(snapshot.size);
     });
 
+    // Escutar Encontros para Avaliar (Individual)
+    const qMeetings = query(
+      collection(db, "meetings"), 
+      where("status", "in", ["WaitingApproval", "PendingAdjustments"])
+    );
+    const unsubscribeMeetings = onSnapshot(qMeetings, (snap) => {
+      setPendingMeetings(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
     return () => {
       unsubscribeCompanies();
       unsubscribeImpl();
       unsubscribeRequests();
+      unsubscribeMeetings();
     };
   }, [db, user]);
+
+  const handleApprove = async (meet: any) => {
+    setIsProcessing(true);
+    try {
+      await approveMeeting({
+        uid: meet.uid,
+        implId: meet.implementationId,
+        compId: meet.companyId,
+        phaseId: meet.phaseId,
+        comment: reviewComment[meet.id]
+      });
+      toast({ title: "Encontro aprovado!", description: "A fase foi concluída para este usuário." });
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Erro na aprovação", description: e.message });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleRequestAdjustments = async (meet: any) => {
+    const comment = reviewComment[meet.id];
+    if (!comment) {
+      toast({ variant: "destructive", title: "Comentário obrigatório", description: "Informe o que precisa ser ajustado." });
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      await requestMeetingAdjustments({
+        uid: meet.uid,
+        implId: meet.implementationId,
+        compId: meet.companyId,
+        phaseId: meet.phaseId,
+        comment
+      });
+      toast({ title: "Ajuste solicitado", description: "O usuário receberá o feedback." });
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Erro ao salvar", description: e.message });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   if (!isMounted) return null;
 
@@ -89,16 +152,14 @@ export default function ImplantadorPage() {
               <span className="text-[10px] text-blue-400 font-bold uppercase tracking-widest">Minha Gestão</span>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <UserNav user={user} />
-          </div>
+          <UserNav user={user} />
         </nav>
 
         <main className="max-w-7xl mx-auto p-8">
           <header className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
             <div>
-              <h2 className="text-3xl font-headline font-bold text-slate-900">Meus Clientes</h2>
-              <p className="text-slate-500 mt-1 italic">Exibindo apenas empresas sob sua responsabilidade direta.</p>
+              <h2 className="text-3xl font-headline font-bold text-slate-900">Painel de Controle</h2>
+              <p className="text-slate-500 mt-1 italic">Gestão individual de participantes e empresas.</p>
             </div>
             <div className="relative w-full md:w-80">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -113,16 +174,23 @@ export default function ImplantadorPage() {
 
           <Tabs defaultValue="active" className="space-y-8">
             <TabsList className="bg-slate-200/50 p-1 h-12 rounded-xl">
-              <TabsTrigger value="active" className="px-6 h-10 font-bold rounded-lg">Em Andamento</TabsTrigger>
+              <TabsTrigger value="active" className="px-6 h-10 font-bold rounded-lg">Clientes</TabsTrigger>
+              <TabsTrigger value="meetings" className="px-6 h-10 font-bold relative rounded-lg">
+                Encontros p/ Validar
+                {pendingMeetings.length > 0 && (
+                  <Badge className="absolute -top-2 -right-2 bg-blue-600 text-white w-5 h-5 p-0 flex items-center justify-center rounded-full text-[10px]">
+                    {pendingMeetings.length}
+                  </Badge>
+                )}
+              </TabsTrigger>
               <TabsTrigger value="requests" className="px-6 h-10 font-bold relative rounded-lg">
-                Novas Solicitações
+                Solicitações
                 {pendingRequestsCount > 0 && (
                   <Badge className="absolute -top-2 -right-2 bg-red-500 text-white w-5 h-5 p-0 flex items-center justify-center rounded-full text-[10px]">
                     {pendingRequestsCount}
                   </Badge>
                 )}
               </TabsTrigger>
-              <TabsTrigger value="completed" className="px-6 h-10 font-bold rounded-lg">Concluídos</TabsTrigger>
             </TabsList>
 
             <TabsContent value="active">
@@ -132,8 +200,7 @@ export default function ImplantadorPage() {
                 ) : filteredImpls.length === 0 ? (
                   <div className="col-span-full py-20 text-center bg-white rounded-3xl border border-dashed border-slate-300">
                     <Clock className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-                    <p className="text-slate-500 font-medium">Você ainda não possui clientes vinculados.</p>
-                    <p className="text-xs text-slate-400 mt-2">Aprove uma solicitação na aba ao lado para assumir um cliente.</p>
+                    <p className="text-slate-500 font-medium">Nenhum cliente vinculado.</p>
                   </div>
                 ) : (
                   filteredImpls.map(impl => (
@@ -160,25 +227,93 @@ export default function ImplantadorPage() {
                         
                         <div className="grid grid-cols-2 gap-4 pt-4 border-t">
                           <div className="flex flex-col">
-                            <span className="text-[10px] text-slate-400 font-bold uppercase">Gestor</span>
-                            <span className="font-bold text-slate-700 text-xs truncate">
-                              {companies[impl.companyId]?.mainContactUid ? 'Vínculo Ativo' : 'Pendente'}
-                            </span>
+                            <span className="text-[10px] text-slate-400 font-bold uppercase">Implantador</span>
+                            <span className="font-bold text-slate-700 text-xs truncate">Você</span>
                           </div>
                           <div className="flex flex-col">
-                            <span className="text-[10px] text-slate-400 font-bold uppercase">Fase Atual</span>
-                            <span className="font-bold text-slate-700 text-xs">
-                              {impl.currentPhaseId || 'Início'}
-                            </span>
+                            <span className="text-[10px] text-slate-400 font-bold uppercase">Vínculo</span>
+                            <span className="font-bold text-slate-700 text-xs">Ativo</span>
                           </div>
                         </div>
                       </CardContent>
                       <CardFooter className="bg-slate-50 p-4 gap-2">
                         <Button className="w-full font-bold h-10 shadow-sm rounded-xl" asChild>
-                          <Link href={`/implantador/clients/${impl.id}`}>Gerenciar Implantação</Link>
+                          <Link href={`/implantador/clients/${impl.id}`}>Gerenciar implantação</Link>
                         </Button>
-                        <Button variant="outline" size="icon" className="h-10 w-12 hover:bg-white rounded-xl">
-                          <MessageSquare className="w-4 h-4 text-slate-600" />
+                      </CardFooter>
+                    </Card>
+                  ))
+                )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="meetings">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {pendingMeetings.length === 0 ? (
+                  <div className="col-span-full py-20 text-center bg-white rounded-3xl border border-dashed">
+                    <Calendar className="w-12 h-12 text-slate-200 mx-auto mb-4" />
+                    <p className="text-slate-500">Nenhum encontro aguardando validação.</p>
+                  </div>
+                ) : (
+                  pendingMeetings.map(meet => (
+                    <Card key={meet.id} className="border-none shadow-md overflow-hidden bg-white">
+                      <CardHeader className="bg-slate-50 border-b py-4">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{meet.phaseId}</p>
+                            <CardTitle className="text-lg font-bold text-slate-800">
+                              {companies[meet.companyId]?.name || 'Empresa'}
+                            </CardTitle>
+                          </div>
+                          <Badge variant={meet.status === 'WaitingApproval' ? 'secondary' : 'destructive'} className="text-[10px]">
+                            {meet.status === 'WaitingApproval' ? 'Aguardando Avaliação' : 'Ajuste Solicitado'}
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="pt-6 space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="bg-slate-50 p-3 rounded-lg border">
+                            <p className="text-[9px] font-bold text-slate-400 uppercase">Data Realização</p>
+                            <p className="text-sm font-bold">{meet.scheduledDate}</p>
+                          </div>
+                          <div className="bg-slate-50 p-3 rounded-lg border">
+                            <p className="text-[9px] font-bold text-slate-400 uppercase">Horário</p>
+                            <p className="text-sm font-bold">{meet.scheduledTime}</p>
+                          </div>
+                        </div>
+
+                        {meet.notes && (
+                          <div className="space-y-1">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase">Observações do Cliente:</p>
+                            <p className="text-xs italic text-slate-600 bg-slate-50 p-3 rounded-lg">"{meet.notes}"</p>
+                          </div>
+                        )}
+
+                        <div className="space-y-2 pt-2 border-t">
+                          <Label className="text-xs font-bold text-slate-500">Parecer do Implantador</Label>
+                          <Textarea 
+                            placeholder="Descreva aqui o feedback ou ajustes necessários..."
+                            className="text-xs min-h-[100px]"
+                            value={reviewComment[meet.id] || ""}
+                            onChange={(e) => setReviewComment({...reviewComment, [meet.id]: e.target.value})}
+                          />
+                        </div>
+                      </CardContent>
+                      <CardFooter className="bg-slate-50 py-4 px-6 border-t grid grid-cols-2 gap-4">
+                        <Button 
+                          variant="outline" 
+                          className="text-red-600 border-red-200 hover:bg-red-50 font-bold"
+                          onClick={() => handleRequestAdjustments(meet)}
+                          disabled={isProcessing}
+                        >
+                          <X className="w-4 h-4 mr-2" /> Solicitar Ajuste
+                        </Button>
+                        <Button 
+                          className="bg-green-600 hover:bg-green-700 text-white font-bold"
+                          onClick={() => handleApprove(meet)}
+                          disabled={isProcessing}
+                        >
+                          <Check className="w-4 h-4 mr-2" /> Aprovar Etapa
                         </Button>
                       </CardFooter>
                     </Card>
@@ -189,13 +324,6 @@ export default function ImplantadorPage() {
 
             <TabsContent value="requests">
               <AccessRequestsTab />
-            </TabsContent>
-            
-            <TabsContent value="completed">
-               <div className="py-20 text-center bg-white rounded-3xl border border-dashed border-slate-300">
-                  <CheckCircle className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-                  <p className="text-slate-500 font-medium">Histórico de implantações concluídas aparecerá aqui.</p>
-               </div>
             </TabsContent>
           </Tabs>
         </main>

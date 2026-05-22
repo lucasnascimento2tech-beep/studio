@@ -23,7 +23,7 @@ export default function PhaseDetailPage() {
   const { phaseId } = useParams();
   const router = useRouter();
   const { user } = useUser();
-  const { progress, isLoaded, scheduleMeeting } = useJourneyStore();
+  const { progress, isLoaded, scheduleMeeting, markMeetingReadyForApproval } = useJourneyStore();
   const { effectiveAreas, loading: memberLoading } = useCurrentImplementationMember();
   
   const [members, setMembers] = useState<any[]>([]);
@@ -115,7 +115,7 @@ export default function PhaseDetailPage() {
             <Card className="py-20 text-center space-y-4">
               <Lock className="w-16 h-16 text-slate-200 mx-auto" />
               <div className="space-y-1">
-                <h2 className="text-xl font-bold text-slate-900">Etapa Bloqueada</h2>
+                <h2 className="text-xl font-bold text-slate-900">Etapa bloqueada</h2>
                 <p className="text-slate-500 max-w-sm mx-auto">Você precisa concluir a fase anterior para liberar estes materiais.</p>
               </div>
               <Button asChild variant="outline">
@@ -126,7 +126,7 @@ export default function PhaseDetailPage() {
             <div className="space-y-10">
               <section>
                 <h2 className="text-lg font-bold text-primary mb-4 flex items-center gap-2">
-                  <ClipboardList className="w-5 h-5" /> Seus Módulos de Aprendizado
+                  <ClipboardList className="w-5 h-5" /> Seus módulos de aprendizado
                 </h2>
                 <div className="space-y-4">
                   {individualModules.length === 0 ? (
@@ -189,14 +189,14 @@ export default function PhaseDetailPage() {
                         Você concluiu todos os módulos desta fase. Agora, responda a validação para liberar o próximo passo.
                       </p>
                       <Button asChild size="lg" className="w-full bg-secondary text-primary font-bold hover:bg-secondary/90">
-                        <Link href={`/phases/${phase.id}/checkpoint`}>Realizar Validação Agora</Link>
+                        <Link href={`/phases/${phase.id}/checkpoint`}>Realizar validação agora</Link>
                       </Button>
                     </CardContent>
                   </Card>
                 </section>
               )}
 
-              {(phase.hasMeeting || status === 'Scheduled' || status === 'WaitingApproval' || status === 'PendingAdjustments' || status === 'ReadyToSchedule') && (
+              {(phase.hasMeeting || ['Scheduled', 'WaitingApproval', 'PendingAdjustments', 'ReadyToSchedule'].includes(status)) && (
                 <MeetingStatusCard 
                   phase={phase}
                   userProgress={{
@@ -210,6 +210,7 @@ export default function PhaseDetailPage() {
                   members={members}
                   memberProgress={memberProgress}
                   onSchedule={(data) => scheduleMeeting(phase.id, data)}
+                  onMarkReadyForApproval={(pId) => markMeetingReadyForApproval(pId)}
                 />
               )}
             </div>

@@ -40,6 +40,12 @@ export function useJourneyStore() {
   const getQuizSubmissionId = (phaseId: string) => 
     `${user?.implementationId}_${user?.uid}_${phaseId}`;
 
+  // ID Generics for implementer/admin use
+  const getGenericPhaseProgressId = (implId: string, uid: string, phaseId: string) => 
+    `${implId}_${uid}_${phaseId}`;
+  const getGenericMeetingId = (implId: string, uid: string, phaseId: string) => 
+    `${implId}_${uid}_${phaseId}`;
+
   useEffect(() => {
     if (!user?.uid || !user?.implementationId) {
       if (!user && !isLoaded) setIsLoaded(true);
@@ -157,28 +163,36 @@ export function useJourneyStore() {
     };
   }, [user?.uid, user?.implementationId]);
 
-  const unlockNextPhase = async (currentPhaseId: string) => {
-    if (!user?.uid || !user?.implementationId) return;
+  const unlockNextPhaseForUser = async (targetUid: string, targetImplId: string, targetCompId: string, currentPhaseId: string) => {
     const db = getFirestore();
     const currentIndex = journeyPhases.findIndex(p => p.id === currentPhaseId);
     const nextPhase = journeyPhases[currentIndex + 1];
 
     if (nextPhase) {
-      const nextPhaseRef = doc(db, "phaseProgress", getPhaseProgressId(nextPhase.id));
+      const nextPhaseId = nextPhase.id;
+      const nextPhaseRef = doc(db, "phaseProgress", getGenericPhaseProgressId(targetImplId, targetUid, nextPhaseId));
       const nextPhaseSnap = await getDoc(nextPhaseRef);
       
-      if (!nextPhaseSnap.exists() || nextPhaseSnap.data().status === 'Locked') {
+      const existingStatus = nextPhaseSnap.exists() ? nextPhaseSnap.data().status : null;
+      const blockingStatuses = ['Completed', 'Scheduled', 'WaitingApproval', 'PendingAdjustments', 'ReadyToSchedule'];
+      
+      if (!nextPhaseSnap.exists() || !blockingStatuses.includes(existingStatus)) {
         await setDoc(nextPhaseRef, {
-          uid: user.uid,
-          implementationId: user.implementationId,
-          companyId: user.companyId || "",
-          phaseId: nextPhase.id,
+          uid: targetUid,
+          implementationId: targetImplId,
+          companyId: targetCompId || "",
+          phaseId: nextPhaseId,
           status: "InProgress",
           progressPercent: 0,
           updatedAt: serverTimestamp()
         }, { merge: true });
       }
     }
+  };
+
+  const unlockNextPhase = async (currentPhaseId: string) => {
+    if (!user?.uid || !user?.implementationId) return;
+    await unlockNextPhaseForUser(user.uid, user.implementationId, user.companyId || "", currentPhaseId);
   };
 
   const recalculatePhaseProgress = async (phaseId: string, effectiveAreas: AreaType[]) => {
@@ -212,11 +226,14 @@ export function useJourneyStore() {
     const percent = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 100;
 
     let newStatus = currentStatus;
+    const nonReversibleStatuses = ['ReadyToSchedule', 'Scheduled', 'WaitingApproval', 'Completed', 'PendingAdjustments'];
 
-    if (isDone && (currentStatus === 'InProgress' || currentStatus === 'NotStarted' || currentStatus === 'Locked')) {
-      newStatus = "WaitingCheckpoint";
-    } else if (!isDone && (currentStatus === 'InProgress' || currentStatus === 'NotStarted')) {
-      newStatus = "InProgress";
+    if (!nonReversibleStatuses.includes(currentStatus)) {
+      if (isDone) {
+        newStatus = "WaitingCheckpoint";
+      } else {
+        newStatus = "InProgress";
+      }
     }
 
     await setDoc(phaseRef, {
@@ -333,6 +350,66 @@ export function useJourneyStore() {
     }, { merge: true });
   };
 
+  const markMeetingReadyForApproval = async (phaseId: string) => {
+    if (!user?.uid || !user?.implementationId) return;
+    const db = getFirestore();
+    
+    const meetingRef = doc(db, "meetings", getMeetingId(phaseId));
+    await setDoc(meetingRef, {
+      status: "WaitingApproval",
+      readyForApprovalAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
+    await setDoc(doc(db, "phaseProgress", getPhaseProgressId(phaseId)), {
+      status: "WaitingApproval",
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  };
+
+  // Funções para Implantador/Admin
+  const approveMeeting = async (params: { uid: string, implId: string, compId: string, phaseId: string, comment?: string }) => {
+    const db = getFirestore();
+    
+    const meetingRef = doc(db, "meetings", getGenericMeetingId(params.implId, params.uid, params.phaseId));
+    await setDoc(meetingRef, {
+      status: "Completed",
+      reviewedByUid: user?.uid,
+      reviewedAt: serverTimestamp(),
+      reviewComment: params.comment || "Etapa aprovada.",
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
+    const phaseRef = doc(db, "phaseProgress", getGenericPhaseProgressId(params.implId, params.uid, params.phaseId));
+    await setDoc(phaseRef, {
+      status: "Completed",
+      completedAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
+    await unlockNextPhaseForUser(params.uid, params.implId, params.compId, params.phaseId);
+  };
+
+  const requestMeetingAdjustments = async (params: { uid: string, implId: string, compId: string, phaseId: string, comment: string }) => {
+    if (!params.comment) throw new Error("Comentário de ajuste é obrigatório.");
+    const db = getFirestore();
+    
+    const meetingRef = doc(db, "meetings", getGenericMeetingId(params.implId, params.uid, params.phaseId));
+    await setDoc(meetingRef, {
+      status: "PendingAdjustments",
+      reviewedByUid: user?.uid,
+      reviewedAt: serverTimestamp(),
+      reviewComment: params.comment,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
+    const phaseRef = doc(db, "phaseProgress", getGenericPhaseProgressId(params.implId, params.uid, params.phaseId));
+    await setDoc(phaseRef, {
+      status: "PendingAdjustments",
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  };
+
   return {
     progress,
     isLoaded,
@@ -340,6 +417,9 @@ export function useJourneyStore() {
     uploadEvidence,
     saveQuizScore,
     scheduleMeeting,
+    markMeetingReadyForApproval,
+    approveMeeting,
+    requestMeetingAdjustments,
     recalculatePhaseProgress
   };
 }
