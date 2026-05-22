@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
@@ -7,7 +6,7 @@ import { useJourneyStore } from "@/hooks/useJourneyStore";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useState } from "react";
-import { ArrowLeft, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Loader2, Info } from "lucide-react";
 import Link from "next/link";
 import { useToast } from "@/hooks/use-toast";
 

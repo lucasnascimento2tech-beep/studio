@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState } from "react";
@@ -9,8 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { 
-  Lock, Unlock, Calendar, CheckCircle2, 
-  AlertCircle, Clock, ArrowRight, Info, Users 
+  Calendar, CheckCircle2, 
+  AlertTriangle, Clock, ArrowRight, Info, Users, Unlock 
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Phase, ImplementationMember } from "@/types/journey";
@@ -278,4 +277,3 @@ export function MeetingStatusCard({
     </div>
   );
 }
-

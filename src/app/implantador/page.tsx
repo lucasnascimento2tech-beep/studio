@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -9,8 +8,9 @@ import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/componen
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Users, CheckCircle, Clock, Search, MessageSquare, Loader2, Building, LayoutDashboard } from "lucide-react";
+import { Users, CheckCircle, Clock, Search, MessageSquare, Loader2, LayoutDashboard } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import Link from "next/link";
 import { AccessRequestsTab } from "./access-requests/AccessRequestsTab";
 import { UserNav } from "@/components/layout/UserNav";
