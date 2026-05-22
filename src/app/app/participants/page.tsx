@@ -137,12 +137,51 @@ export default function ParticipantsPage() {
     }
   };
 
-  const copyInviteLink = (token: string) => {
+  const copyInviteLink = async (token: string) => {
     const link = `${window.location.origin}/invite/${token}`;
-    navigator.clipboard.writeText(link);
-    setCopiedToken(token);
-    setTimeout(() => setCopiedToken(""), 2000);
-    toast({ title: "Link Copiado" });
+    
+    let copied = false;
+
+    // Tentar Clipboard API moderna
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(link);
+        copied = true;
+      }
+    } catch (err) {
+      console.warn("Clipboard API falhou, tentando fallback...", err);
+    }
+
+    // Fallback: execCommand('copy')
+    if (!copied) {
+      try {
+        const textArea = document.createElement("textarea");
+        textArea.value = link;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-9999px";
+        textArea.style.top = "0";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        if (successful) copied = true;
+      } catch (err) {
+        console.error("Fallback de cópia falhou:", err);
+      }
+    }
+
+    if (copied) {
+      setCopiedToken(token);
+      setTimeout(() => setCopiedToken(""), 2000);
+      toast({ title: "Link Copiado" });
+    } else {
+      toast({ 
+        variant: "destructive", 
+        title: "Erro ao copiar", 
+        description: "Copie manualmente: " + link 
+      });
+    }
   };
 
   const deactivateMember = async (member: any) => {

@@ -22,11 +22,10 @@ service cloud.firestore {
     }
 
     // Verifica se o implantador está atribuído a uma implantação específica
-    // Usa resource.data para eficiência em consultas de listagem (read/list)
     function isAssignedImplantador(implementationId) {
-      let user = getUserData();
+      let userProfile = getUserData();
       return isAuthenticated() 
-        && user.globalRole == 'implantador' 
+        && userProfile.globalRole == 'implantador' 
         && (
           (resource != null && resource.data.assignedImplantadorUid == request.auth.uid) ||
           (get(/databases/$(database)/documents/implementations/$(implementationId)).data.assignedImplantadorUid == request.auth.uid)
@@ -34,8 +33,8 @@ service cloud.firestore {
     }
 
     function isClientMaster(companyId) {
-      let user = getUserData();
-      return isAuthenticated() && user.globalRole == 'client_master' && user.companyId == companyId;
+      let userProfile = getUserData();
+      return isAuthenticated() && userProfile.globalRole == 'client_master' && userProfile.companyId == companyId;
     }
 
     function belongsToCompany(companyId) {
@@ -80,7 +79,6 @@ service cloud.firestore {
     }
 
     match /companies/{companyId} {
-      // Permitimos que a equipe interna (staff) liste empresas para exibir nomes no painel
       allow read: if isAdmin() 
         || isImplantador()
         || belongsToCompany(companyId);
@@ -99,7 +97,7 @@ service cloud.firestore {
     match /implementations/{implId} {
       allow read: if isAdmin() 
         || belongsToImplementation(implId) 
-        || isImplantador(); // Filtro real é feito na query/assignedImplantadorUid
+        || isAssignedImplantador(implId);
       
       allow create: if isAdmin() || isImplantador();
       
@@ -125,17 +123,21 @@ service cloud.firestore {
             
       allow update: if isAdmin() 
         || isAssignedImplantador(resource.data.implementationId) 
-        || (isClientMaster(request.resource.data.companyId) 
+        || (isClientMaster(resource.data.companyId) 
             && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'clientAccessType', 'uid', 'companyId', 'implementationId'])
-            && request.resource.data.role == 'participant');
+            && (request.resource.data.role == 'participant' || resource.data.role == 'participant'));
     }
 
     match /invites/{inviteId} {
-      allow read: if true; // MVP: leitura pública necessária para link de convite
-      allow write: if isAdmin() 
-        || (request.resource != null && isAssignedImplantador(request.resource.data.implementationId))
-        || (resource != null && isAssignedImplantador(resource.data.implementationId))
-        || (request.resource != null && isClientMaster(request.resource.data.companyId));
+      allow read: if true; 
+      allow create: if isAdmin() 
+        || isAssignedImplantador(request.resource.data.implementationId)
+        || isClientMaster(request.resource.data.companyId);
+      allow update: if isAdmin() 
+        || isAssignedImplantador(resource.data.implementationId)
+        || isClientMaster(resource.data.companyId)
+        || isClientMaster(request.resource.data.companyId);
+      allow delete: if isAdmin();
     }
 
     match /moduleProgress/{progressId} {
@@ -148,7 +150,6 @@ service cloud.firestore {
         || isAssignedImplantador(request.resource.data.implementationId) 
         || (
             isAuthenticated()
-            && request.resource.data.uid == request.auth.uid
             && request.resource.data.uid == request.auth.uid
             && getUserData().implementationId == request.resource.data.implementationId
             && getUserData().companyId == request.resource.data.companyId
@@ -177,32 +178,23 @@ service cloud.firestore {
         || isClientMaster(resource.data.companyId)
         || isOwnUser(resource.data.uid);
 
-      allow create: if isAdmin()
-        || isAssignedImplantador(request.resource.data.implementationId)
-        || (
-            isAuthenticated()
-            && request.resource.data.uid == request.auth.uid
-            && getUserData().implementationId == request.resource.data.implementationId
-            && getUserData().companyId == request.resource.data.companyId
-            && request.resource.data.status == 'Scheduled'
-            && !('reviewedByUid' in request.resource.data)
-            && !('reviewedAt' in request.resource.data)
-            && !('reviewComment' in request.resource.data)
-        );
+      allow create: if (isAuthenticated() && request.resource.data.uid == request.auth.uid
+        && getUserData().implementationId == request.resource.data.implementationId
+        && getUserData().companyId == request.resource.data.companyId
+        && request.resource.data.status == 'Scheduled'
+        && !('reviewedByUid' in request.resource.data)
+        && !('reviewedAt' in request.resource.data)
+        && !('reviewComment' in request.resource.data));
 
       allow update: if isAdmin() 
         || isAssignedImplantador(resource.data.implementationId)
         || (
             isAuthenticated()
             && resource.data.uid == request.auth.uid
-            && request.resource.data.uid == resource.data.uid
-            && request.resource.data.implementationId == resource.data.implementationId
-            && request.resource.data.companyId == resource.data.companyId
-            && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['reviewedByUid', 'reviewedAt', 'reviewComment'])
+            && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['reviewedByUid', 'reviewedAt', 'reviewComment', 'uid', 'implementationId', 'companyId', 'phaseId'])
             && (
-              (resource.data.status == 'Scheduled' && request.resource.data.status == 'WaitingApproval')
-              || (resource.data.status == 'PendingAdjustments' && request.resource.data.status == 'Scheduled')
-              || (resource.data.status in ['Scheduled', 'PendingAdjustments'] && request.resource.data.status == resource.data.status)
+              (resource.data.status == 'Scheduled' && request.resource.data.status in ['Scheduled', 'WaitingApproval'])
+              || (resource.data.status == 'PendingAdjustments' && request.resource.data.status in ['PendingAdjustments', 'Scheduled'])
             )
         );
             
