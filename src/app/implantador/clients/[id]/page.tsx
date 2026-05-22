@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogT
 import { useToast } from "@/hooks/use-toast";
 import { 
   ArrowLeft, FileText, ShieldCheck, Users, Clock, 
-  CheckCircle2, Calendar, MessageSquare, Info, AlertTriangle, ExternalLink, Search, User, Trash2, Check, X
+  CheckCircle2, Calendar, MessageSquare, Info, AlertTriangle, ExternalLink, Search, User, Trash2, Check, X, ShieldAlert
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -37,6 +37,9 @@ export default function ClientDetailPage() {
   const { toast } = useToast();
   const router = useRouter();
   const { reviewEvidence, approveMeeting, requestMeetingAdjustments } = useJourneyStore();
+
+  // Estados de Autorização
+  const [accessStatus, setAccessStatus] = useState<"loading" | "allowed" | "denied">("loading");
 
   // Estados de Dados
   const [implementation, setImplementation] = useState<any>(null);
@@ -57,8 +60,7 @@ export default function ClientDetailPage() {
   const [newNote, setNewNote] = useState("");
   const [noteVisibility, setNoteVisibility] = useState<'internal' | 'client_visible'>('internal');
 
-  const canOperate = currentUser?.globalRole === 'admin_2tech' || implementation?.assignedImplantadorUid === currentUser?.uid;
-
+  // 1. Carregar Implementação e Validar Acesso Primeiro
   useEffect(() => {
     if (!implementationId) return;
 
@@ -66,15 +68,34 @@ export default function ClientDetailPage() {
       if (snap.exists()) {
         const data = snap.data();
         setImplementation({ id: snap.id, ...data });
-        if (data.companyId) {
-          getDocs(query(collection(db, "companies"), where("id", "==", data.companyId))).then(cSnap => {
-            if (!cSnap.empty) setCompany(cSnap.docs[0].data());
-          });
+
+        // Validação de acesso
+        const isAdmin = currentUser?.globalRole === 'admin_2tech';
+        const isAssigned = data.assignedImplantadorUid === currentUser?.uid;
+
+        if (isAdmin || isAssigned) {
+          setAccessStatus("allowed");
+          
+          if (data.companyId) {
+            getDocs(query(collection(db, "companies"), where("id", "==", data.companyId))).then(cSnap => {
+              if (!cSnap.empty) setCompany(cSnap.docs[0].data());
+            });
+          }
+        } else {
+          setAccessStatus("denied");
+          setLoading(false);
         }
       } else {
         router.push("/implantador");
       }
     });
+
+    return () => unsubImpl();
+  }, [implementationId, db, currentUser, router]);
+
+  // 2. Carregar o restante dos dados somente se permitido
+  useEffect(() => {
+    if (accessStatus !== "allowed" || !implementationId) return;
 
     const unsubMembers = onSnapshot(query(collection(db, "implementationMembers"), where("implementationId", "==", implementationId)), (snap) => {
       setMembers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -102,9 +123,11 @@ export default function ClientDetailPage() {
     });
 
     return () => {
-      unsubImpl(); unsubMembers(); unsubModules(); unsubPhases(); unsubMeetings(); unsubSubmissions(); unsubNotes();
+      unsubMembers(); unsubModules(); unsubPhases(); unsubMeetings(); unsubSubmissions(); unsubNotes();
     };
-  }, [implementationId, db, router]);
+  }, [accessStatus, implementationId, db]);
+
+  const canOperate = accessStatus === 'allowed';
 
   // Ações de Evidência
   const handleReviewEvidence = async (status: 'approved' | 'adjustment_requested' | 'rejected') => {
@@ -219,12 +242,31 @@ export default function ClientDetailPage() {
     }
   };
 
-  if (loading) return (
+  if (accessStatus === "loading") return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
       <div className="flex flex-col items-center gap-4">
         <Clock className="w-12 h-12 text-primary animate-pulse" />
-        <p className="text-slate-500 font-medium">Carregando portal do especialista...</p>
+        <p className="text-slate-500 font-medium">Verificando autorização...</p>
       </div>
+    </div>
+  );
+
+  if (accessStatus === "denied") return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+      <Card className="max-w-md w-full text-center py-12 border-none shadow-xl">
+        <ShieldAlert className="w-16 h-16 text-red-500 mx-auto mb-4" />
+        <CardHeader>
+          <CardTitle>Acesso não permitido</CardTitle>
+        </CardHeader>
+        <CardContent className="text-slate-500">
+          Esta implantação não está vinculada ao seu usuário de implantador.
+        </CardContent>
+        <CardFooter className="flex justify-center">
+          <Button asChild variant="outline">
+            <Link href="/implantador"><ArrowLeft className="w-4 h-4 mr-2" /> Voltar para o painel</Link>
+          </Button>
+        </CardFooter>
+      </Card>
     </div>
   );
 
@@ -324,7 +366,7 @@ export default function ClientDetailPage() {
                           </div>
                           <div className="p-2 bg-orange-50 rounded-lg">
                             <p className="text-[10px] text-orange-600 font-bold uppercase">Validando</p>
-                            <p className="text-lg font-bold text-orange-700">{waitingMeet}</p>
+                            <p className="text-lg font-bold text-green-700">{waitingMeet}</p>
                           </div>
                         </div>
                       </CardContent>
@@ -522,7 +564,7 @@ export default function ClientDetailPage() {
                           {isWaiting && canOperate && (
                             <div className="space-y-4 pt-2 border-t">
                               <div className="space-y-2">
-                                <Label className="text-xs font-bold text-slate-500">Parecer Final do Implantador</Label>
+                                <Label className="text-xs font-bold text-slate-500">Parecer Final do Especialista</Label>
                                 <Textarea 
                                   placeholder="Detalhe o resultado do encontro ou solicite ajustes..." 
                                   className="text-xs min-h-[80px] bg-slate-50/50"

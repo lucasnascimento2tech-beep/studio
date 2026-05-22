@@ -42,7 +42,9 @@ export default function ImplantadorPage() {
     setIsMounted(true);
     if (!user?.uid) return;
     
-    // Escutar Empresas
+    const isAdmin = user.globalRole === 'admin_2tech';
+
+    // 1. Escutar Empresas (Limitado a empresas relacionadas se for implantador comum)
     const unsubscribeCompanies = onSnapshot(collection(db, "companies"), (snap) => {
       const companyMap: Record<string, any> = {};
       snap.docs.forEach(doc => {
@@ -51,9 +53,9 @@ export default function ImplantadorPage() {
       setCompanies(companyMap);
     });
 
-    // Escutar Implantações
+    // 2. Escutar Implantações (Regra de escopo aplicada aqui)
     let qImpl;
-    if (user.globalRole === 'admin_2tech') {
+    if (isAdmin) {
       qImpl = query(collection(db, "implementations"));
     } else {
       qImpl = query(
@@ -65,33 +67,52 @@ export default function ImplantadorPage() {
     const unsubscribeImpl = onSnapshot(qImpl, (snapshot) => {
       const impls = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setImplementations(impls);
-      setLoading(false);
+      
+      // 3. Escutar Encontros para Avaliar (Filtrar por implantações do usuário)
+      const assignedIds = impls.map(i => i.id);
+      
+      const qMeetings = query(
+        collection(db, "meetings"), 
+        where("status", "in", ["WaitingApproval", "PendingAdjustments"])
+      );
+
+      const unsubscribeMeetings = onSnapshot(qMeetings, (meetSnap) => {
+        const allMeetings = meetSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        // Filtro de escopo no frontend para garantir conformidade
+        if (isAdmin) {
+          setPendingMeetings(allMeetings);
+        } else {
+          setPendingMeetings(allMeetings.filter(m => assignedIds.includes(m.implementationId)));
+        }
+        setLoading(false);
+      });
+
+      return () => unsubscribeMeetings();
     });
 
-    // Escutar Solicitações Pendentes
+    // 4. Escutar Solicitações Pendentes (Admin vê todas, Implantador vê para triagem)
     const qRequests = query(collection(db, "accessRequests"), where("status", "==", "pending"));
     const unsubscribeRequests = onSnapshot(qRequests, (snapshot) => {
       setPendingRequestsCount(snapshot.size);
-    });
-
-    // Escutar Encontros para Avaliar (Individual)
-    const qMeetings = query(
-      collection(db, "meetings"), 
-      where("status", "in", ["WaitingApproval", "PendingAdjustments"])
-    );
-    const unsubscribeMeetings = onSnapshot(qMeetings, (snap) => {
-      setPendingMeetings(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
     return () => {
       unsubscribeCompanies();
       unsubscribeImpl();
       unsubscribeRequests();
-      unsubscribeMeetings();
     };
   }, [db, user]);
 
   const handleApprove = async (meet: any) => {
+    // Validação extra de escopo antes de processar
+    const isAdmin = user?.globalRole === 'admin_2tech';
+    const isAssigned = implementations.some(i => i.id === meet.implementationId);
+    
+    if (!isAdmin && !isAssigned) {
+      toast({ variant: "destructive", title: "Ação não permitida", description: "Esta implantação não está sob sua responsabilidade." });
+      return;
+    }
+
     setIsProcessing(true);
     try {
       await approveMeeting({
@@ -110,6 +131,14 @@ export default function ImplantadorPage() {
   };
 
   const handleRequestAdjustments = async (meet: any) => {
+    const isAdmin = user?.globalRole === 'admin_2tech';
+    const isAssigned = implementations.some(i => i.id === meet.implementationId);
+    
+    if (!isAdmin && !isAssigned) {
+      toast({ variant: "destructive", title: "Ação não permitida", description: "Esta implantação não está sob sua responsabilidade." });
+      return;
+    }
+
     const comment = reviewComment[meet.id];
     if (!comment) {
       toast({ variant: "destructive", title: "Comentário obrigatório", description: "Informe o que precisa ser ajustado." });
@@ -159,7 +188,9 @@ export default function ImplantadorPage() {
           <header className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
             <div>
               <h2 className="text-3xl font-headline font-bold text-slate-900">Painel de Controle</h2>
-              <p className="text-slate-500 mt-1 italic">Gestão individual de participantes e empresas.</p>
+              <p className="text-slate-500 mt-1 italic">
+                {user?.globalRole === 'admin_2tech' ? 'Gestão global de todas as implantações.' : 'Gestão individual de seus participantes e empresas.'}
+              </p>
             </div>
             <div className="relative w-full md:w-80">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -200,7 +231,7 @@ export default function ImplantadorPage() {
                 ) : filteredImpls.length === 0 ? (
                   <div className="col-span-full py-20 text-center bg-white rounded-3xl border border-dashed border-slate-300">
                     <Clock className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-                    <p className="text-slate-500 font-medium">Nenhum cliente vinculado.</p>
+                    <p className="text-slate-500 font-medium">Nenhum cliente vinculado ao seu usuário.</p>
                   </div>
                 ) : (
                   filteredImpls.map(impl => (
@@ -227,8 +258,10 @@ export default function ImplantadorPage() {
                         
                         <div className="grid grid-cols-2 gap-4 pt-4 border-t">
                           <div className="flex flex-col">
-                            <span className="text-[10px] text-slate-400 font-bold uppercase">Implantador</span>
-                            <span className="font-bold text-slate-700 text-xs truncate">Você</span>
+                            <span className="text-[10px] text-slate-400 font-bold uppercase">Responsável</span>
+                            <span className="font-bold text-slate-700 text-xs truncate">
+                              {impl.assignedImplantadorUid === user?.uid ? "Você" : "Outro Especialista"}
+                            </span>
                           </div>
                           <div className="flex flex-col">
                             <span className="text-[10px] text-slate-400 font-bold uppercase">Vínculo</span>
@@ -252,7 +285,7 @@ export default function ImplantadorPage() {
                 {pendingMeetings.length === 0 ? (
                   <div className="col-span-full py-20 text-center bg-white rounded-3xl border border-dashed">
                     <Calendar className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-                    <p className="text-slate-500">Nenhum encontro aguardando validação.</p>
+                    <p className="text-slate-500">Nenhum encontro aguardando validação nas suas implantações.</p>
                   </div>
                 ) : (
                   pendingMeetings.map(meet => (
