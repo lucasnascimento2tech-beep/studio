@@ -79,7 +79,7 @@ export default function Home() {
     });
 
     return () => unsubMembers();
-  }, [user, authLoading, router]);
+  }, [user?.uid, user?.implementationId, authLoading, router]);
 
   if (authLoading || loading || !isLoaded || memberLoading) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">

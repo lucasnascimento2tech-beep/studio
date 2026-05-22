@@ -4,7 +4,18 @@
 import { useState, useEffect } from 'react';
 import { ProgressState, PhaseStatus, AreaType } from '@/types/journey';
 import { journeyPhases } from '@/data/journeyData';
-import { getFirestore, doc, setDoc, updateDoc, serverTimestamp, collection, query, where, onSnapshot, getDocs, getDoc } from 'firebase/firestore';
+import { 
+  getFirestore, 
+  doc, 
+  setDoc, 
+  serverTimestamp, 
+  collection, 
+  query, 
+  where, 
+  onSnapshot, 
+  getDocs, 
+  getDoc 
+} from 'firebase/firestore';
 import { useUser } from '@/firebase';
 
 export function useJourneyStore() {
@@ -19,19 +30,55 @@ export function useJourneyStore() {
   });
   const [isLoaded, setIsLoaded] = useState(false);
 
+  // Helpers para IDs padronizados
+  const getModuleProgressId = (moduleId: string) => 
+    `${user?.implementationId}_${user?.uid}_${moduleId}`;
+  const getPhaseProgressId = (phaseId: string) => 
+    `${user?.implementationId}_${user?.uid}_${phaseId}`;
+  const getMeetingId = (phaseId: string) => 
+    `${user?.implementationId}_${user?.uid}_${phaseId}`;
+  const getQuizSubmissionId = (phaseId: string) => 
+    `${user?.implementationId}_${user?.uid}_${phaseId}`;
+
   useEffect(() => {
     if (!user?.uid || !user?.implementationId) {
-      if (!user) setIsLoaded(true);
+      if (!user && !isLoaded) setIsLoaded(true);
       return;
     }
 
     const db = getFirestore();
-    
+    const { uid, implementationId, companyId, globalRole } = user;
+
+    // Inicialização da Fase Inicial (Fase 0)
+    const initFirstPhase = async () => {
+      if (globalRole === 'admin_2tech' || globalRole === 'implantador' || globalRole === 'client_pending') return;
+      
+      const firstPhaseId = "fase-0";
+      const phaseRef = doc(db, "phaseProgress", getPhaseProgressId(firstPhaseId));
+      const phaseSnap = await getDoc(phaseRef);
+      
+      if (!phaseSnap.exists()) {
+        await setDoc(phaseRef, {
+          uid,
+          implementationId,
+          companyId: companyId || "",
+          phaseId: firstPhaseId,
+          status: "InProgress",
+          progressPercent: 0,
+          completedModulesCount: 0,
+          totalModulesCount: 0,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      }
+    };
+    initFirstPhase();
+
     // 1. Escuta progresso de módulos INDIVIDUAL
     const moduleQuery = query(
       collection(db, "moduleProgress"),
-      where("implementationId", "==", user.implementationId),
-      where("uid", "==", user.uid)
+      where("implementationId", "==", implementationId),
+      where("uid", "==", uid)
     );
 
     const unsubscribeModules = onSnapshot(moduleQuery, (snapshot) => {
@@ -55,18 +102,13 @@ export function useJourneyStore() {
       // 2. Escuta progresso de fases INDIVIDUAL
       const phaseQuery = query(
         collection(db, "phaseProgress"),
-        where("implementationId", "==", user.implementationId),
-        where("uid", "==", user.uid)
+        where("implementationId", "==", implementationId),
+        where("uid", "==", uid)
       );
 
       const unsubscribePhases = onSnapshot(phaseQuery, (phaseSnap) => {
         const phaseStatus: Record<string, PhaseStatus> = {};
         
-        // Inicializa a fase 0 como InProgress se nada existir
-        if (phaseSnap.empty) {
-          phaseStatus['fase-0'] = 'InProgress';
-        }
-
         phaseSnap.docs.forEach(d => {
           const data = d.data();
           phaseStatus[data.phaseId] = data.status;
@@ -75,8 +117,8 @@ export function useJourneyStore() {
         // 3. Escuta Encontros/Meetings INDIVIDUAL
         const meetingsQuery = query(
           collection(db, "meetings"),
-          where("implementationId", "==", user.implementationId),
-          where("uid", "==", user.uid)
+          where("implementationId", "==", implementationId),
+          where("uid", "==", uid)
         );
 
         const unsubscribeMeetings = onSnapshot(meetingsQuery, (meetSnap) => {
@@ -112,7 +154,7 @@ export function useJourneyStore() {
     return () => {
       unsubscribeModules();
     };
-  }, [user]);
+  }, [user?.uid, user?.implementationId]);
 
   const unlockNextPhase = async (currentPhaseId: string) => {
     if (!user?.uid || !user?.implementationId) return;
@@ -121,14 +163,21 @@ export function useJourneyStore() {
     const nextPhase = journeyPhases[currentIndex + 1];
 
     if (nextPhase) {
-      await setDoc(doc(db, "phaseProgress", `${user.uid}_${nextPhase.id}`), {
-        uid: user.uid,
-        implementationId: user.implementationId,
-        companyId: user.companyId || "",
-        phaseId: nextPhase.id,
-        status: "InProgress",
-        updatedAt: serverTimestamp()
-      }, { merge: true });
+      const nextPhaseRef = doc(db, "phaseProgress", getPhaseProgressId(nextPhase.id));
+      const nextPhaseSnap = await getDoc(nextPhaseRef);
+      
+      // Só desbloqueia se a fase ainda não tiver um progresso mais avançado
+      if (!nextPhaseSnap.exists() || nextPhaseSnap.data().status === 'Locked') {
+        await setDoc(nextPhaseRef, {
+          uid: user.uid,
+          implementationId: user.implementationId,
+          companyId: user.companyId || "",
+          phaseId: nextPhase.id,
+          status: "InProgress",
+          progressPercent: 0,
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      }
     }
   };
 
@@ -138,7 +187,7 @@ export function useJourneyStore() {
     const phase = journeyPhases.find(p => p.id === phaseId);
     if (!phase) return;
 
-    // Busca módulos obrigatórios acessíveis
+    // Módulos obrigatórios acessíveis
     const requiredModules = phase.modules.filter(m => 
       m.isRequired && (effectiveAreas.includes(m.area) || effectiveAreas.includes('todos'))
     );
@@ -147,51 +196,60 @@ export function useJourneyStore() {
     const q = query(
       collection(db, "moduleProgress"),
       where("uid", "==", user.uid),
+      where("implementationId", "==", user.implementationId),
       where("phaseId", "==", phaseId),
       where("status", "==", "completed")
     );
     const snap = await getDocs(q);
     const doneIds = snap.docs.map(d => d.data().moduleId);
 
-    const isDone = requiredModules.every(m => doneIds.includes(m.id));
+    const isDone = requiredModules.length > 0 ? requiredModules.every(m => doneIds.includes(m.id)) : true;
     
-    const currentPhaseDoc = await getDoc(doc(db, "phaseProgress", `${user.uid}_${phaseId}`));
+    const phaseRef = doc(db, "phaseProgress", getPhaseProgressId(phaseId));
+    const currentPhaseDoc = await getDoc(phaseRef);
     const currentStatus = currentPhaseDoc.exists() ? currentPhaseDoc.data().status : 'InProgress';
 
-    // Se concluiu módulos, mas ainda está em InProgress, move para WaitingCheckpoint
-    if (isDone && (currentStatus === 'InProgress' || currentStatus === 'NotStarted')) {
-      await updateDoc(doc(db, "phaseProgress", `${user.uid}_${phaseId}`), {
-        status: "WaitingCheckpoint",
-        progressPercent: 100,
-        updatedAt: serverTimestamp()
-      });
-    } else if (!isDone && currentStatus !== 'Locked') {
-      const perc = requiredModules.length > 0 ? Math.round((doneIds.length / requiredModules.length) * 100) : 100;
-      await setDoc(doc(db, "phaseProgress", `${user.uid}_${phaseId}`), {
-        uid: user.uid,
-        implementationId: user.implementationId,
-        companyId: user.companyId || "",
-        phaseId,
-        status: "InProgress",
-        progressPercent: perc,
-        updatedAt: serverTimestamp()
-      }, { merge: true });
+    // Cálculo de percentual
+    const totalCount = requiredModules.length;
+    const doneCount = doneIds.length;
+    const percent = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 100;
+
+    let newStatus = currentStatus;
+
+    // Se concluiu módulos, mas ainda está em InProgress/Locked, move para WaitingCheckpoint
+    if (isDone && (currentStatus === 'InProgress' || currentStatus === 'NotStarted' || currentStatus === 'Locked')) {
+      newStatus = "WaitingCheckpoint";
+    } else if (!isDone && (currentStatus === 'InProgress' || currentStatus === 'NotStarted')) {
+      newStatus = "InProgress";
     }
+
+    await setDoc(phaseRef, {
+      uid: user.uid,
+      implementationId: user.implementationId,
+      companyId: user.companyId || "",
+      phaseId,
+      status: newStatus,
+      progressPercent: percent,
+      completedModulesCount: doneCount,
+      totalModulesCount: totalCount,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
   };
 
   const completeModule = async (moduleId: string, phaseId: string, effectiveAreas: AreaType[]) => {
     if (!user?.uid || !user?.implementationId) return;
 
     const db = getFirestore();
-    const progressId = `${user.uid}_${moduleId}`;
+    const progressRef = doc(db, "moduleProgress", getModuleProgressId(moduleId));
     
-    await setDoc(doc(db, "moduleProgress", progressId), {
+    await setDoc(progressRef, {
       uid: user.uid,
       implementationId: user.implementationId,
       companyId: user.companyId || "",
       phaseId,
       moduleId,
       status: "completed",
+      completedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     }, { merge: true });
 
@@ -202,9 +260,9 @@ export function useJourneyStore() {
     if (!user?.uid || !user?.implementationId) return;
 
     const db = getFirestore();
-    const progressId = `${user.uid}_${moduleId}`;
+    const progressRef = doc(db, "moduleProgress", getModuleProgressId(moduleId));
     
-    await setDoc(doc(db, "moduleProgress", progressId), {
+    await setDoc(progressRef, {
       uid: user.uid,
       implementationId: user.implementationId,
       companyId: user.companyId || "",
@@ -212,6 +270,7 @@ export function useJourneyStore() {
       moduleId,
       fileName,
       evidenceStatus: "submitted",
+      evidenceSubmittedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     }, { merge: true });
   };
@@ -223,7 +282,7 @@ export function useJourneyStore() {
     
     const passed = score >= 70;
 
-    await setDoc(doc(db, "quizSubmissions", `${user.uid}_${phaseId}`), {
+    await setDoc(doc(db, "quizSubmissions", getQuizSubmissionId(phaseId)), {
       uid: user.uid,
       implementationId: user.implementationId,
       companyId: user.companyId || "",
@@ -232,15 +291,15 @@ export function useJourneyStore() {
       passed,
       answers,
       submittedAt: serverTimestamp()
-    });
+    }, { merge: true });
 
     if (passed) {
       const newStatus = phase?.hasMeeting ? "ReadyToSchedule" : "Completed";
-      await updateDoc(doc(db, "phaseProgress", `${user.uid}_${phaseId}`), {
+      await setDoc(doc(db, "phaseProgress", getPhaseProgressId(phaseId)), {
         status: newStatus,
         completedAt: !phase?.hasMeeting ? serverTimestamp() : null,
         updatedAt: serverTimestamp()
-      });
+      }, { merge: true });
 
       if (!phase?.hasMeeting) {
         await unlockNextPhase(phaseId);
@@ -253,7 +312,7 @@ export function useJourneyStore() {
     const db = getFirestore();
     const phase = journeyPhases.find(p => p.id === phaseId);
     
-    const meetingRef = doc(db, "meetings", `${user.uid}_${phaseId}`);
+    const meetingRef = doc(db, "meetings", getMeetingId(phaseId));
     await setDoc(meetingRef, {
       uid: user.uid,
       implementationId: user.implementationId,
@@ -267,12 +326,12 @@ export function useJourneyStore() {
       notes: meetingData.notes,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
-    });
+    }, { merge: true });
 
-    await updateDoc(doc(db, "phaseProgress", `${user.uid}_${phaseId}`), {
+    await setDoc(doc(db, "phaseProgress", getPhaseProgressId(phaseId)), {
       status: "Scheduled",
       updatedAt: serverTimestamp()
-    });
+    }, { merge: true });
   };
 
   return {
