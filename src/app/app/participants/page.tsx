@@ -65,6 +65,9 @@ export default function ParticipantsPage() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setMembers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLoading(false);
+    }, (error) => {
+      console.error("Erro ao carregar membros:", error);
+      setLoading(false);
     });
 
     const fetchCompanyName = async () => {
@@ -106,12 +109,14 @@ export default function ParticipantsPage() {
       });
 
       // 2. Pre-create Member Record
+      // IMPORTANTE: clientAccessType é obrigatório pelas regras de segurança
       await addDoc(collection(db, "implementationMembers"), {
         implementationId: user?.implementationId,
         companyId: user?.companyId,
         name: newName,
         email: newEmail,
         role: "participant",
+        clientAccessType: "participant",
         areas: selectedAreas,
         inviteStatus: "pending",
         inviteId: inviteRef.id,
@@ -124,8 +129,9 @@ export default function ParticipantsPage() {
       setNewName("");
       setNewEmail("");
       setSelectedAreas([]);
-    } catch (e) {
-      toast({ variant: "destructive", title: "Erro", description: "Falha ao criar convite." });
+    } catch (e: any) {
+      console.error("Erro ao criar convite:", e);
+      toast({ variant: "destructive", title: "Erro", description: "Falha ao criar convite. Verifique se você tem permissão de Cliente Master." });
     } finally {
       setIsSubmitting(false);
     }
@@ -232,7 +238,7 @@ export default function ParticipantsPage() {
                   <div className="flex justify-between">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">
-                        {member.name.substring(0,2).toUpperCase()}
+                        {member.name?.substring(0,2).toUpperCase() || '??'}
                       </div>
                       <div>
                         <CardTitle className="text-sm">{member.name}</CardTitle>
