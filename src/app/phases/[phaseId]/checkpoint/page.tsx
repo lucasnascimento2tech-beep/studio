@@ -4,9 +4,9 @@ import { useParams, useRouter } from "next/navigation";
 import { journeyPhases } from "@/data/journeyData";
 import { useJourneyStore } from "@/hooks/useJourneyStore";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
-import { useState, useEffect, use } from "react";
-import { ArrowLeft, CheckCircle2, Loader2, Info, AlertTriangle, XCircle, ChevronLeft } from "lucide-react";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { useState, useEffect } from "react";
+import { ArrowLeft, CheckCircle2, Loader2, Info, AlertTriangle, ChevronLeft, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useToast } from "@/hooks/use-toast";
 import { AuthGuard } from "@/components/auth/AuthGuard";
@@ -15,12 +15,13 @@ import { canAccessModule } from "@/utils/permissions";
 import { AccessDeniedCard } from "@/components/journey/AccessDeniedCard";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import { useUser } from "@/firebase";
 
 export default function CheckpointPage() {
   const { phaseId } = useParams();
-  const router = useRouter();
+  const { user } = useUser();
   const { progress, isLoaded, saveQuizScore } = useJourneyStore();
-  const { effectiveAreas, loading: memberLoading, member } = useCurrentImplementationMember();
+  const { effectiveAreas, loading: memberLoading, member, isMaster } = useCurrentImplementationMember();
   const { toast } = useToast();
 
   const phase = journeyPhases.find(p => p.id === phaseId);
@@ -30,8 +31,9 @@ export default function CheckpointPage() {
   const [pendingRequirement, setPendingRequirement] = useState<boolean>(false);
 
   // 1. Filtrar módulos obrigatórios acessíveis ao usuário nesta fase
+  // Master vê tudo ("todos"), Participante vê apenas sua área
   const accessibleMandatoryModules = phase?.modules.filter(m => 
-    m.isRequired && canAccessModule(member?.role as any, effectiveAreas, m)
+    m.isRequired && canAccessModule(user?.globalRole as any, effectiveAreas, m)
   ) || [];
 
   // 2. Verificar se todos os obrigatórios estão concluídos
@@ -53,13 +55,11 @@ export default function CheckpointPage() {
     </div>
   );
 
-  // Proteção de acesso básico
-  if (!phase || !member) return <AccessDeniedCard />;
+  // Proteção de acesso: Master entra pelo implementationId, Participante exige member
+  if (!phase || (!isMaster && !member)) return <AccessDeniedCard />;
 
-  // Se o usuário não tem acesso a nenhum módulo da fase, ele não deveria estar aqui
-  if (accessibleMandatoryModules.length === 0 && phase.modules.length > 0) {
-    return <AccessDeniedCard />;
-  }
+  // Se não há áreas efetivas, não pode acessar
+  if (effectiveAreas.length === 0) return <AccessDeniedCard />;
 
   // Trava de Requisitos Pendentes
   if (pendingRequirement) {
@@ -80,7 +80,7 @@ export default function CheckpointPage() {
   }
 
   const handleSubmit = async () => {
-    const questions = phase.quiz || [];
+    const questions = phase?.quiz || [];
     
     // Validar se todas foram respondidas
     if (Object.keys(answers).length < questions.length) {
@@ -98,7 +98,7 @@ export default function CheckpointPage() {
 
     setIsSubmitting(true);
 
-    // Cálculo de Score
+    // Cálculo de Score (Focado nas objetivas)
     const objectiveQuestions = questions.filter(q => q.options && q.options.length > 0);
     let score = 100;
 
@@ -110,7 +110,7 @@ export default function CheckpointPage() {
     const passed = score >= 70;
     
     try {
-      await saveQuizScore(phase.id, score, answers);
+      await saveQuizScore(phase!.id, score, answers);
       setResult({ score, passed });
       toast({ 
         title: passed ? "Excelente!" : "Atenção", 
@@ -134,12 +134,12 @@ export default function CheckpointPage() {
           <h2 className="text-3xl font-headline font-bold text-slate-900 mb-2">Validação Concluída!</h2>
           <p className="text-slate-500 mb-8 leading-relaxed">
             Suas respostas foram registradas com sucesso. 
-            {phase.hasMeeting 
+            {phase?.hasMeeting 
               ? " Agora você pode agendar seu encontro individual com o implantador." 
               : " Esta fase foi concluída e a próxima etapa foi liberada para você."}
           </p>
           <Button asChild className="w-full h-14 text-lg font-bold bg-primary shadow-xl shadow-primary/20">
-            <Link href={`/phases/${phase.id}`}>Prosseguir com a Jornada</Link>
+            <Link href={`/phases/${phase?.id}`}>Prosseguir com a Jornada</Link>
           </Button>
         </Card>
       </div>
@@ -171,7 +171,7 @@ export default function CheckpointPage() {
         <div className="bg-white border-b py-6 mb-8 shadow-sm">
           <div className="max-w-3xl mx-auto px-4">
             <Button variant="ghost" size="sm" asChild className="mb-4 text-slate-400 hover:text-primary transition-colors">
-              <Link href={`/phases/${phase.id}`}><ArrowLeft className="w-4 h-4 mr-2" /> Voltar para a Fase</Link>
+              <Link href={`/phases/${phase?.id}`}><ArrowLeft className="w-4 h-4 mr-2" /> Voltar para a Fase</Link>
             </Button>
             <div className="flex items-center gap-3">
                <div className="bg-primary/10 p-2 rounded-lg">
@@ -179,7 +179,7 @@ export default function CheckpointPage() {
                </div>
                <div>
                  <h1 className="text-2xl font-headline font-bold text-slate-900">Validação de Conhecimento</h1>
-                 <p className="text-slate-500 text-sm">{phase.title}</p>
+                 <p className="text-slate-500 text-sm">{phase?.title}</p>
                </div>
             </div>
           </div>
@@ -193,7 +193,7 @@ export default function CheckpointPage() {
              </p>
           </div>
 
-          {phase.quiz.map((q, idx) => (
+          {phase?.quiz.map((q, idx) => (
             <Card key={q.id} className="border-none shadow-sm bg-white overflow-hidden">
               <div className="bg-slate-50 px-6 py-3 border-b">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Questão {idx + 1}</span>

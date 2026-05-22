@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from "react";
@@ -16,54 +15,78 @@ export function useCurrentImplementationMember() {
   useEffect(() => {
     if (authLoading) return;
 
-    if (!user || !user.implementationId) {
+    if (!user) {
       setLoading(false);
       setEffectiveAreas([]);
       return;
     }
 
-    // Admins e Implantadores sempre têm acesso a tudo
+    // 1. Admins e Implantadores: Acesso total imediato
     if (user.globalRole === "admin_2tech" || user.globalRole === "implantador") {
       setEffectiveAreas(["todos"]);
       setLoading(false);
       return;
     }
 
-    // Masters têm acesso a tudo da própria empresa
-    if (user.globalRole === "client_master") {
-      setEffectiveAreas(["todos"]);
+    // 2. Usuários Pendentes: Sem áreas
+    if (user.globalRole === "client_pending") {
+      setEffectiveAreas([]);
       setLoading(false);
       return;
     }
 
-    // Participantes: Buscar áreas no implementationMembers
-    const db = getFirestore();
-    const q = query(
-      collection(db, "implementationMembers"),
-      where("implementationId", "==", user.implementationId),
-      where("uid", "==", user.uid),
-      where("active", "==", true)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      if (!snapshot.empty) {
-        const memberData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as ImplementationMember;
-        setMember(memberData);
-        setEffectiveAreas(memberData.areas || []);
-        setError(null);
+    // 3. Cliente Master: Acesso total se tiver implementação vinculada
+    if (user.globalRole === "client_master") {
+      if (user.implementationId) {
+        setEffectiveAreas(["todos"]);
       } else {
-        setMember(null);
-        setEffectiveAreas([]); // NENHUM fallback para participante sem registro
-        setError("Vínculo de participante não encontrado.");
+        setEffectiveAreas([]);
       }
       setLoading(false);
-    }, (err) => {
-      console.error("Erro ao buscar membro:", err);
-      setError("Falha ao validar áreas de acesso.");
-      setLoading(false);
-    });
+      return;
+    }
 
-    return () => unsubscribe();
+    // 4. Participantes: Buscar áreas no implementationMembers (Exige implementationId)
+    if (user.globalRole === "client_participant") {
+      if (!user.implementationId) {
+        setMember(null);
+        setEffectiveAreas([]);
+        setError("Vínculo de implantação não encontrado.");
+        setLoading(false);
+        return;
+      }
+
+      const db = getFirestore();
+      const q = query(
+        collection(db, "implementationMembers"),
+        where("implementationId", "==", user.implementationId),
+        where("uid", "==", user.uid),
+        where("active", "==", true)
+      );
+
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        if (!snapshot.empty) {
+          const memberData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as ImplementationMember;
+          setMember(memberData);
+          setEffectiveAreas(memberData.areas || []);
+          setError(null);
+        } else {
+          setMember(null);
+          setEffectiveAreas([]); // NUNCA usar fallback "todos" para participante
+          setError("Vínculo de participante não encontrado.");
+        }
+        setLoading(false);
+      }, (err) => {
+        console.error("Erro ao buscar membro:", err);
+        setError("Falha ao validar áreas de acesso.");
+        setLoading(false);
+      });
+
+      return () => unsubscribe();
+    }
+
+    // Fallback de segurança
+    setLoading(false);
   }, [user, authLoading]);
 
   return {
