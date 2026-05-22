@@ -3,6 +3,8 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
+    // --- Funções Auxiliares ---
+    
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -32,61 +34,133 @@ service cloud.firestore {
       return isAuthenticated() && getUserData().implementationId == implId;
     }
 
+    function isOwnUser(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    // --- Regras por Coleção ---
+
     match /users/{uid} {
-      allow read: if isAuthenticated() && (request.auth.uid == uid || isAdmin() || isImplantador());
-      allow create: if isAuthenticated() && request.auth.uid == uid && request.resource.data.globalRole == 'client_pending';
-      allow update: if isAdmin() || isImplantador() || (isAuthenticated() && request.auth.uid == uid && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['globalRole', 'active', 'companyId', 'implementationId']));
+      allow read: if isOwnUser(uid) || isAdmin() || isImplantador();
+      
+      // Usuário comum só cria o próprio perfil como pendente e inativo
+      allow create: if isOwnUser(uid) 
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.globalRole == 'client_pending'
+        && request.resource.data.active == false
+        && request.resource.data.approvalStatus == 'pending'
+        && !('companyId' in request.resource.data)
+        && !('implementationId' in request.resource.data);
+        
+      // Proteção contra autopromoção e alteração de vínculos
+      allow update: if isAdmin() 
+        || (isImplantador() && !request.resource.data.globalRole.matches('admin_2tech|implantador'))
+        || (isOwnUser(uid) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'globalRole', 'active', 'approvalStatus', 'companyId', 'implementationId', 'uid', 'email'
+        ]));
     }
 
     match /accessRequests/{requestId} {
       allow read: if isAdmin() || isImplantador() || (isAuthenticated() && resource.data.uid == request.auth.uid);
-      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
+      
+      allow create: if isAuthenticated() 
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.source == 'self_registration';
+        
       allow update: if isAdmin() || isImplantador();
     }
 
     match /companies/{companyId} {
       allow read: if isAdmin() || belongsToCompany(companyId) || (isImplantador() && (resource.data.mainImplantadorUid == request.auth.uid || get(/databases/$(database)/documents/implementations/$(resource.data.activeImplementationId)).data.assignedImplantadorUid == request.auth.uid));
-      allow write: if isAdmin() || isImplantador();
+      allow create, update: if isAdmin() || isImplantador();
+      allow delete: if isAdmin();
     }
 
     match /implementations/{implId} {
-      allow read: if isAdmin() || (isImplantador() && resource.data.assignedImplantadorUid == request.auth.uid) || belongsToImplementation(implId);
-      allow write: if isAdmin() || (isImplantador() && (resource.data.assignedImplantadorUid == request.auth.uid || !('assignedImplantadorUid' in resource.data)));
+      allow read: if isAdmin() || belongsToImplementation(implId) || (isImplantador() && resource.data.assignedImplantadorUid == request.auth.uid);
+      allow create: if isAdmin() || isImplantador();
+      allow update: if isAdmin() || (isImplantador() && (resource.data.assignedImplantadorUid == request.auth.uid || !('assignedImplantadorUid' in resource.data)));
+      allow delete: if isAdmin();
     }
 
     match /implementationMembers/{memberId} {
-      allow read: if isAdmin() || isImplantador() || belongsToImplementation(resource.data.implementationId);
-      allow write: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(request.resource.data.companyId));
+      allow read: if isAdmin() || isImplantador() || belongsToImplementation(resource.data.implementationId) || isOwnUser(resource.data.uid);
+      
+      allow create: if isAdmin() || isImplantador() 
+        || (isClientMaster(request.resource.data.companyId) 
+            && request.resource.data.role == 'participant' 
+            && request.resource.data.clientAccessType == 'participant');
+            
+      allow update: if isAdmin() || isImplantador() 
+        || (isClientMaster(resource.data.companyId) 
+            && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'clientAccessType'])
+            && request.resource.data.role == 'participant');
     }
 
     match /invites/{inviteId} {
+      // MVP: leitura pública de convite necessária para /invite/:token.
       allow read: if true;
-      allow write: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(request.resource.data.companyId));
+      allow write: if isAdmin() || isImplantador() || isClientMaster(request.resource.data.companyId);
     }
 
     match /moduleProgress/{progressId} {
-      allow read: if isAdmin() || isImplantador() || belongsToImplementation(resource.data.implementationId);
-      allow write: if isAuthenticated() && (request.auth.uid == request.resource.data.uid || isImplantador());
+      allow read: if isAdmin() || isImplantador() 
+        || (isAuthenticated() && isClientMaster(resource.data.companyId)) 
+        || (isAuthenticated() && isOwnUser(resource.data.uid));
+        
+      allow write: if isAdmin() || isImplantador() 
+        || (isOwnUser(request.resource.data.uid) 
+            && belongsToImplementation(request.resource.data.implementationId)
+            && belongsToCompany(request.resource.data.companyId));
     }
 
     match /phaseProgress/{progressId} {
-      allow read: if isAdmin() || isImplantador() || belongsToImplementation(resource.data.implementationId);
-      allow write: if isAuthenticated() && (request.auth.uid == request.resource.data.uid || isImplantador());
+      allow read: if isAdmin() || isImplantador() 
+        || (isAuthenticated() && isClientMaster(resource.data.companyId)) 
+        || (isAuthenticated() && isOwnUser(resource.data.uid));
+        
+      allow write: if isAdmin() || isImplantador() 
+        || (isOwnUser(request.resource.data.uid) 
+            && belongsToImplementation(request.resource.data.implementationId)
+            && belongsToCompany(request.resource.data.companyId));
     }
 
     match /meetings/{meetingId} {
-      allow read: if isAdmin() || isImplantador() || belongsToImplementation(resource.data.implementationId);
-      allow write: if isAuthenticated() && (request.auth.uid == request.resource.data.uid || isImplantador());
+      allow read: if isAdmin() || isImplantador() 
+        || (isAuthenticated() && isClientMaster(resource.data.companyId)) 
+        || (isAuthenticated() && isOwnUser(resource.data.uid));
+        
+      allow write: if isAdmin() || isImplantador() 
+        || (isOwnUser(request.resource.data.uid) 
+            && belongsToImplementation(request.resource.data.implementationId)
+            && belongsToCompany(request.resource.data.companyId)
+            && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['reviewedByUid', 'reviewedAt', 'reviewComment'])
+            && (resource == null || resource.data.status != 'Completed'));
+            
+      allow update: if isAdmin() || isImplantador();
     }
 
     match /quizSubmissions/{subId} {
-      allow read: if isAdmin() || isImplantador() || belongsToImplementation(resource.data.implementationId);
-      allow create: if isAuthenticated() && request.auth.uid == request.resource.data.uid;
+      allow read: if isAdmin() || isImplantador() 
+        || (isAuthenticated() && isClientMaster(resource.data.companyId)) 
+        || (isAuthenticated() && isOwnUser(resource.data.uid));
+        
+      allow write: if isAdmin() || isImplantador() 
+        || (isOwnUser(request.resource.data.uid) 
+            && belongsToImplementation(request.resource.data.implementationId)
+            && belongsToCompany(request.resource.data.companyId));
     }
 
     match /implantadorNotes/{noteId} {
-      allow read: if isAdmin() || isImplantador() || (isAuthenticated() && resource.data.visibility == 'client_visible' && belongsToImplementation(resource.data.implementationId));
+      allow read: if isAdmin() || isImplantador() 
+        || (isAuthenticated() && resource.data.visibility == 'client_visible' && belongsToImplementation(resource.data.implementationId));
       allow write: if isAdmin() || isImplantador();
+    }
+
+    // --- Deny padrão para qualquer outra coleção não mapeada ---
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
