@@ -34,94 +34,59 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read: if isAuthenticated() && (request.auth.uid == uid || isAdmin() || isImplantador());
-      
-      // Bloqueio de auto-promoção: apenas client_pending pode ser criado pelo próprio usuário
-      allow create: if isAuthenticated() 
-        && request.auth.uid == uid 
-        && request.resource.data.globalRole == 'client_pending'
-        && request.resource.data.active == false
-        && request.resource.data.approvalStatus == 'pending'
-        && !('companyId' in request.resource.data)
-        && !('implementationId' in request.resource.data);
-        
-      allow update: if isAdmin() || isImplantador() || (
-        isAuthenticated() && 
-        request.auth.uid == uid && 
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'globalRole', 'active', 'companyId', 'implementationId', 'uid', 'email', 'approvalStatus'
-        ])
-      );
-      allow delete: if isAdmin();
+      allow create: if isAuthenticated() && request.auth.uid == uid && request.resource.data.globalRole == 'client_pending';
+      allow update: if isAdmin() || isImplantador() || (isAuthenticated() && request.auth.uid == uid && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['globalRole', 'active', 'companyId', 'implementationId']));
     }
 
     match /accessRequests/{requestId} {
       allow read: if isAdmin() || isImplantador() || (isAuthenticated() && resource.data.uid == request.auth.uid);
-      
-      // Segurança na criação da solicitação
-      allow create: if isAuthenticated() 
-        && request.resource.data.uid == request.auth.uid
-        && request.resource.data.status == 'pending'
-        && request.resource.data.source == 'self_registration';
-        
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
       allow update: if isAdmin() || isImplantador();
-      allow delete: if isAdmin();
     }
 
     match /companies/{companyId} {
-      allow read: if isAdmin() || belongsToCompany(companyId) || (isImplantador() && (
-        resource.data.mainImplantadorUid == request.auth.uid || 
-        get(/databases/$(database)/documents/implementations/$(resource.data.activeImplementationId)).data.assignedImplantadorUid == request.auth.uid
-      ));
+      allow read: if isAdmin() || belongsToCompany(companyId) || (isImplantador() && (resource.data.mainImplantadorUid == request.auth.uid || get(/databases/$(database)/documents/implementations/$(resource.data.activeImplementationId)).data.assignedImplantadorUid == request.auth.uid));
       allow write: if isAdmin() || isImplantador();
     }
 
     match /implementations/{implId} {
       allow read: if isAdmin() || (isImplantador() && resource.data.assignedImplantadorUid == request.auth.uid) || belongsToImplementation(implId);
-      allow update: if isAdmin() || (isImplantador() && resource.data.assignedImplantadorUid == request.auth.uid);
-      allow create, delete: if isAdmin() || isImplantador();
+      allow write: if isAdmin() || (isImplantador() && (resource.data.assignedImplantadorUid == request.auth.uid || !('assignedImplantadorUid' in resource.data)));
     }
 
     match /implementationMembers/{memberId} {
       allow read: if isAdmin() || isImplantador() || belongsToImplementation(resource.data.implementationId);
-      
-      // Apenas Master ou Equipe 2tech podem gerenciar membros
-      allow create: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(request.resource.data.companyId));
-      allow update: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(resource.data.companyId));
-      allow delete: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(resource.data.companyId));
+      allow write: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(request.resource.data.companyId));
     }
 
     match /invites/{inviteId} {
-      // Leitura pública necessária para o aceite de convite por token (MVP)
       allow read: if true;
-      allow create: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(request.resource.data.companyId));
-      allow update, delete: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(resource.data.companyId));
+      allow write: if isAdmin() || isImplantador() || (isAuthenticated() && isClientMaster(request.resource.data.companyId));
     }
 
     match /moduleProgress/{progressId} {
       allow read: if isAdmin() || isImplantador() || belongsToImplementation(resource.data.implementationId);
-      
-      // Usuário só escreve seu próprio progresso
-      allow write: if isAuthenticated() 
-        && request.auth.uid == request.resource.data.uid
-        && belongsToImplementation(request.resource.data.implementationId);
+      allow write: if isAuthenticated() && (request.auth.uid == request.resource.data.uid || isImplantador());
     }
 
     match /phaseProgress/{progressId} {
       allow read: if isAdmin() || isImplantador() || belongsToImplementation(resource.data.implementationId);
-      allow write: if isAuthenticated() 
-        && request.auth.uid == request.resource.data.uid
-        && belongsToImplementation(request.resource.data.implementationId);
+      allow write: if isAuthenticated() && (request.auth.uid == request.resource.data.uid || isImplantador());
     }
 
     match /meetings/{meetingId} {
       allow read: if isAdmin() || isImplantador() || belongsToImplementation(resource.data.implementationId);
-      allow create: if isAdmin() || isImplantador() || (isAuthenticated() && request.auth.uid == request.resource.data.uid);
-      allow update: if isAdmin() || isImplantador() || (isAuthenticated() && request.auth.uid == resource.data.uid);
+      allow write: if isAuthenticated() && (request.auth.uid == request.resource.data.uid || isImplantador());
     }
 
     match /quizSubmissions/{subId} {
       allow read: if isAdmin() || isImplantador() || belongsToImplementation(resource.data.implementationId);
       allow create: if isAuthenticated() && request.auth.uid == request.resource.data.uid;
+    }
+
+    match /implantadorNotes/{noteId} {
+      allow read: if isAdmin() || isImplantador() || (isAuthenticated() && resource.data.visibility == 'client_visible' && belongsToImplementation(resource.data.implementationId));
+      allow write: if isAdmin() || isImplantador();
     }
   }
 }
